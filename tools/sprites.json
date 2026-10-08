@@ -1,0 +1,42 @@
+{
+  "style": "retro 16-bit pixel art, dark fantasy night palette, hard 1-pixel edges, clean dark outline, flat shading with at most 3 tones per material, no anti-aliasing, no gradients, no dithering, no glow, no soft shadows",
+  "max_colours": 16,
+  "sprites": {
+    "tower": {
+      "file": "tower/tower.png",
+      "size": [24, 32],
+      "anchor": "bottom",
+      "key": true,
+      "desc": "a squat grey stone watchtower with battlements on top, mossy brick courses, one small glowing yellow window, and two thick gnarled wooden root-legs at the base that it walks on; slightly alive and characterful; front view with a gentle top-down 3/4 RPG perspective"
+    },
+    "zombie": {
+      "file": "enemies/zombie.png",
+      "size": [12, 12],
+      "anchor": "bottom",
+      "key": true,
+      "desc": "a small shambling green-skinned zombie with tattered clothes, arms stretched forward, tiny red eyes; front view with a gentle top-down 3/4 RPG perspective, facing right"
+    },
+    "xp": {
+      "file": "pickups/xp.png",
+      "size": [8, 8],
+      "anchor": "center",
+      "key": true,
+      "desc": "a small faceted glowing blue crystal gem, bright highlight on the upper left"
+    },
+    "arrow": {
+      "file": "projectiles/arrow.png",
+      "size": [12, 4],
+      "anchor": "center",
+      "key": true,
+      "desc": "a single wooden arrow pointing exactly to the right, steel arrowhead on the right end, feather fletching on the left end, drawn perfectly horizontal"
+    },
+    "ground": {
+      "file": "tiles/ground.png",
+      "size": [16, 16],
+      "anchor": "center",
+      "key": false,
+      "tile": true,
+      "desc": "a seamless tileable top-down ground tile of dark blue-grey night soil with a few tiny pebbles and one or two sparse dark-green grass tufts"
+    }
+  }
+}

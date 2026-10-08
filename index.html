@@ -34,6 +34,51 @@
   canvas.width = VIEW_W; canvas.height = VIEW_H;
   ctx.imageSmoothingEnabled = false;
 
+  // ---------- Assets ----------
+  // All art lives in ./assets as image files and is loaded by URL at runtime.
+  // Nothing is embedded in this file. Paths are relative to ASSET_DIR and must match tools/sprites.json.
+  // A sprite that is missing or fails to load simply keeps its coloured-rectangle placeholder.
+  const ASSET_DIR = 'assets/';
+  const ASSET_FILES = {
+    tower:  'tower/tower.png',
+    zombie: 'enemies/zombie.png',
+    xp:     'pickups/xp.png',
+    arrow:  'projectiles/arrow.png',
+    ground: 'tiles/ground.png',
+  };
+  const sprites = {};   // key -> loaded Image (absent until loaded)
+  const flashes = {};   // key -> tinted copy used for hit flashes
+
+  function tint(img, color) {
+    const c = document.createElement('canvas');
+    c.width = img.width; c.height = img.height;
+    const g = c.getContext('2d');
+    g.drawImage(img, 0, 0);
+    g.globalCompositeOperation = 'source-atop';
+    g.fillStyle = color; g.fillRect(0, 0, c.width, c.height);
+    return c;
+  }
+
+  function loadAssets() {
+    const keysToLoad = Object.keys(ASSET_FILES), missing = [];
+    let pending = keysToLoad.length;
+    const settle = () => {
+      if (--pending === 0 && missing.length) console.info('[assets] using placeholders for: ' + missing.join(', '));
+    };
+    for (const key of keysToLoad) {
+      const img = new Image();
+      img.onload = () => {
+        sprites[key] = img;
+        if (key === 'zombie') flashes.zombie = tint(img, '#ffffff');
+        if (key === 'tower') flashes.tower = tint(img, '#ffd0d0');
+        settle();
+      };
+      img.onerror = () => { missing.push(ASSET_FILES[key]); settle(); };
+      img.src = ASSET_DIR + ASSET_FILES[key];
+    }
+  }
+  loadAssets();   // game starts immediately; sprites swap in as they arrive
+
   // ---------- Input ----------
   const keys = {};
   addEventListener('keydown', e => {
@@ -74,7 +119,7 @@
       x: camX + x, y: camY + y,
       speed: rand(ZOMBIE_SPEED_MIN, ZOMBIE_SPEED_MAX) * (1 + Math.min(time / 180, 0.8)),
       hp: ZOMBIE_HP, flash: 0, wob: Math.random() * 6.28,
-      kx: 0, ky: 0
+      kx: 0, ky: 0, dir: 1
     });
   }
 
@@ -175,6 +220,7 @@
       const dx = tower.x - z.x, dy = tower.y - z.y;
       const d = Math.hypot(dx, dy) || 1;
       z.wob += dt * 6;
+      if (Math.abs(dx) > 1) z.dir = dx < 0 ? -1 : 1;
       z.x += (dx / d) * z.speed * dt + z.kx * dt * 8;
       z.y += (dy / d) * z.speed * dt + z.ky * dt * 8;
       z.kx *= 0.85; z.ky *= 0.85;
@@ -215,6 +261,16 @@
   // ---------- Render ----------
   function rect(x, y, w, h, c) { ctx.fillStyle = c; ctx.fillRect(Math.round(x), Math.round(y), w, h); }
 
+  // Draw an image anchored at (x, y); ax/ay are 0..1 anchor within the image (0.5, 1 = bottom-centre).
+  function drawSprite(img, x, y, ax = 0.5, ay = 0.5, flip = false) {
+    const top = Math.round(y - img.height * ay);
+    if (!flip) { ctx.drawImage(img, Math.round(x - img.width * ax), top); return; }
+    ctx.save();
+    ctx.translate(Math.round(x), 0); ctx.scale(-1, 1);
+    ctx.drawImage(img, Math.round(-img.width * (1 - ax)), top);
+    ctx.restore();
+  }
+
   // deterministic ground tiles so the world has a sense of movement
   function hash(x, y) { let h = x * 374761393 + y * 668265263; h = (h ^ (h >> 13)) * 1274126177; return ((h ^ (h >> 16)) >>> 0) / 4294967295; }
 
@@ -226,6 +282,7 @@
       for (let tx = x0; tx <= x1; tx++) {
         const h = hash(tx, ty);
         const sx = tx * T - camX + VIEW_W / 2 + ox, sy = ty * T - camY + VIEW_H / 2 + oy;
+        if (sprites.ground) { ctx.drawImage(sprites.ground, Math.round(sx), Math.round(sy)); continue; }
         rect(sx, sy, T, T, (tx + ty) & 1 ? '#161b2b' : '#141828');
         if (h > 0.86) rect(sx + (h * 97 % 10), sy + (h * 53 % 10), 2, 2, '#232b45');       // pebbles
         else if (h < 0.06) { rect(sx + 4, sy + 6, 1, 3, '#1d3a2a'); rect(sx + 6, sy + 5, 1, 4, '#1d3a2a'); } // grass tufts
@@ -245,9 +302,13 @@
       const [sx, sy] = worldToScreen(d.x, d.y, ox, oy);
       if (sx < -8 || sx > VIEW_W + 8 || sy < -8 || sy > VIEW_H + 8) continue;
       const b = Math.sin(d.bob) > 0 ? 0 : 1;
-      rect(sx - 2, sy - 2 - b + 1, XP_SIZE, XP_SIZE, '#3fb6ff');
-      rect(sx - 1, sy - 2 - b + 1, 1, 1, '#d8f3ff');
-      rect(sx - 2, sy + 2 + 1, XP_SIZE, 1, '#0a1a2e'); // shadow
+      rect(sx - 2, sy + 3, XP_SIZE, 1, '#0a1a2e'); // shadow
+      if (sprites.xp) {
+        drawSprite(sprites.xp, sx, sy + 3 - b, 0.5, 1);
+      } else {
+        rect(sx - 2, sy - 2 - b + 1, XP_SIZE, XP_SIZE, '#3fb6ff');
+        rect(sx - 1, sy - 2 - b + 1, 1, 1, '#d8f3ff');
+      }
     }
 
     // Zombies (sorted-ish by y: draw in array order, good enough for prototype)
@@ -256,8 +317,13 @@
       if (sx < -10 || sx > VIEW_W + 10 || sy < -10 || sy > VIEW_H + 10) continue;
       const bob = Math.sin(z.wob) > 0 ? 1 : 0;
       rect(sx - 3, sy + 4, 6, 1, '#07080f');                                  // shadow
-      rect(sx - 4, sy - 4 - bob, ZOMBIE_SIZE, ZOMBIE_SIZE, z.flash > 0 ? '#ffffff' : '#4f8a3a');
-      if (z.flash <= 0) { rect(sx - 2, sy - 2 - bob, 1, 1, '#ff3b3b'); rect(sx + 1, sy - 2 - bob, 1, 1, '#ff3b3b'); }
+      if (sprites.zombie) {
+        const img = z.flash > 0 && flashes.zombie ? flashes.zombie : sprites.zombie;
+        drawSprite(img, sx, sy + 4 - bob, 0.5, 1, z.dir < 0);
+      } else {
+        rect(sx - 4, sy - 4 - bob, ZOMBIE_SIZE, ZOMBIE_SIZE, z.flash > 0 ? '#ffffff' : '#4f8a3a');
+        if (z.flash <= 0) { rect(sx - 2, sy - 2 - bob, 1, 1, '#ff3b3b'); rect(sx + 1, sy - 2 - bob, 1, 1, '#ff3b3b'); }
+      }
     }
 
     // Tower
@@ -267,6 +333,10 @@
       const sway = moving ? Math.sin(tower.step * 6.28) : 0;
       const lift = moving ? Math.abs(Math.sin(tower.step * 6.28)) * 1.5 : 0;
       rect(sx - 10, sy + 10, 20, 3, '#07080f');                               // shadow
+      if (sprites.tower) {
+        const img = tower.hitFlash > 0 && flashes.tower ? flashes.tower : sprites.tower;
+        drawSprite(img, sx + sway * 0.6, sy + 12 - lift, 0.5, 1);
+      } else {
       // root-legs (two stubby legs alternating)
       rect(sx - 7, sy + 7 - (sway > 0 ? lift : 0), 4, 5, '#4a3a2a');
       rect(sx + 3, sy + 7 - (sway < 0 ? lift : 0), 4, 5, '#4a3a2a');
@@ -283,13 +353,22 @@
       rect(bx + 7, by + 3, 4, 4, '#1b1f2a'); rect(bx + 8, by + 4, 2, 2, '#ffcf5a');
       // little eyes so it feels alive
       rect(bx + (tower.facing > 0 ? 11 : 4), by + 11, 2, 2, '#ffe9a0');
+      }
     }
 
     // Arrows
     for (const a of arrows) {
       const [sx, sy] = worldToScreen(a.x, a.y, ox, oy);
-      const dx = Math.cos(a.a), dy = Math.sin(a.a);
-      for (let i = 0; i < 4; i++) rect(sx - dx * i * 2, sy - dy * i * 2, 2, 2, i === 0 ? '#ffffff' : '#c9b27a');
+      if (sprites.arrow) {
+        const im = sprites.arrow;      // authored pointing right (+x)
+        ctx.save();
+        ctx.translate(Math.round(sx), Math.round(sy)); ctx.rotate(a.a);
+        ctx.drawImage(im, -Math.round(im.width / 2), -Math.round(im.height / 2));
+        ctx.restore();
+      } else {
+        const dx = Math.cos(a.a), dy = Math.sin(a.a);
+        for (let i = 0; i < 4; i++) rect(sx - dx * i * 2, sy - dy * i * 2, 2, 2, i === 0 ? '#ffffff' : '#c9b27a');
+      }
     }
 
     // Particles

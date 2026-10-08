@@ -1,0 +1,8 @@
+# Raw Gemini output (large, 1024px+). Only the downscaled files in assets/ ship.
+# Delete these two lines if you want the originals versioned too.
+art-src/*
+!art-src/.gitkeep
+
+__pycache__/
+*.pyc
+.DS_Store
