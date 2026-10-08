@@ -2,14 +2,19 @@
 
 A mage and a living stone tower, each levelling the other. Prototype of the full day/night loop in plain HTML + canvas, to prove it's fun before a likely Godot rebuild.
 
-Right now only the **night phase** exists: you steer the slowly-walking tower with WASD, zombies swarm in from every side, the tower auto-fires an arrow every 2 seconds at the nearest one, and dead zombies leave XP gems on the ground.
+Right now there are two phases, switched by hand with **N** (temporary, for testing):
+
+- **Night** (zoomed out): steer the slowly-walking tower with WASD, zombies swarm in from every side, the tower auto-fires an arrow every 2 seconds at the nearest one, and dead zombies leave XP gems on the ground. Each night starts a bit busier, and the tower wakes at full health.
+- **Day** (camera zooms in 4x on the mage): the tower roots where it stopped. Walk with WASD; the mage always faces the mouse. Click (or hold) near a tree to chop wood, or near a rock to mine stone, with an 18% chance of copper and a 5% chance of iron per rock. Walk over the night's XP gems to collect them; a blue marker at the screen edge points to the nearest one off screen. Trees and rocks are topped up around the tower each dawn.
+
+A resource counter (wood, stone, copper, iron, XP) sits at the bottom of the screen. Nothing spends resources yet.
 
 ## Layout
 
 ```
 index.html          game logic only. No images, no base64.
 assets/             all art, as image files loaded by URL at runtime
-  tower/ enemies/ pickups/ projectiles/ tiles/ ui/
+  tower/ mage/ enemies/ resources/ pickups/ projectiles/ tiles/ ui/
 art-src/            raw Gemini downloads (git-ignored; ~0.5 MB each)
 tools/
   sprites.json      single source of truth: every sprite's file, pixel size, palette, anchor, description
@@ -75,9 +80,13 @@ so the per-sprite files stay the editable truth. Not needed yet (all current spr
 | xp | 8x8 | |
 | arrow | 12x4 | drawn pointing right, rotated in code |
 | ground | 16x16 | seamless tile |
+| mage | 12x16 | not drawn yet (placeholder). Bottom-anchored, faces right, flipped toward the mouse. Staff is drawn in code |
+| tree | 16x20 | not drawn yet (placeholder). Bottom-anchored |
+| rock | 12x8 | not drawn yet (placeholder). Bottom-anchored |
 
 ## Planned
 
-The day phase (the mage chopping trees and mining stone and copper to upgrade the tower), the zoom-out wake-up cutscene
-(the tower yawns, stretches and pulls its root-legs out of the ground, which needs an awake tower with a face), and the
-morning XP-collection scramble. Not built yet.
+- Spending: wood/stone/copper/iron buy tower upgrades (attacks, defences); XP buys mage upgrades.
+- A real day/night clock to replace the N key, with the mage's morning as a timed scramble.
+- The zoom-out wake-up cutscene (the tower yawns, stretches and pulls its root-legs out of the ground,
+  which needs an awake tower with a face).

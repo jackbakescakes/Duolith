@@ -4,7 +4,10 @@
   "sprites": {
     "tower": {
       "file": "tower/tower.png",
-      "size": [40, 48],
+      "size": [
+        40,
+        48
+      ],
       "colours": 24,
       "anchor": "bottom",
       "key": true,
@@ -12,32 +15,74 @@
     },
     "zombie": {
       "file": "enemies/zombie.png",
-      "size": [20, 20],
+      "size": [
+        20,
+        20
+      ],
       "anchor": "bottom",
       "key": true,
       "desc": "a small shambling green-skinned zombie with tattered clothes, arms stretched forward, tiny red eyes; front view with a gentle top-down 3/4 RPG perspective, facing right"
     },
     "xp": {
       "file": "pickups/xp.png",
-      "size": [8, 8],
+      "size": [
+        8,
+        8
+      ],
       "anchor": "center",
       "key": true,
       "desc": "a small faceted glowing blue crystal gem, bright highlight on the upper left"
     },
     "arrow": {
       "file": "projectiles/arrow.png",
-      "size": [12, 4],
+      "size": [
+        12,
+        4
+      ],
       "anchor": "center",
       "key": true,
       "desc": "a single wooden arrow pointing exactly to the right, steel arrowhead on the right end, feather fletching on the left end, drawn perfectly horizontal"
     },
     "ground": {
       "file": "tiles/ground.png",
-      "size": [16, 16],
+      "size": [
+        16,
+        16
+      ],
       "anchor": "center",
       "key": false,
       "tile": true,
       "desc": "a seamless tileable top-down ground tile of dark blue-grey night soil with a few tiny pebbles and one or two sparse dark-green grass tufts"
+    },
+    "mage": {
+      "file": "mage/mage.png",
+      "size": [
+        12,
+        16
+      ],
+      "anchor": "bottom",
+      "key": true,
+      "desc": "a tiny wizard in a purple robe and a tall pointy purple hat with a slightly bent tip, small round face, little boots, no staff in hand (the staff is drawn separately in code); front view with a gentle top-down 3/4 RPG perspective, facing right"
+    },
+    "tree": {
+      "file": "resources/tree.png",
+      "size": [
+        16,
+        20
+      ],
+      "anchor": "bottom",
+      "key": true,
+      "desc": "a small round leafy forest tree with a short brown trunk and a bushy dark-green canopy with a few lighter leaf highlights; front view with a gentle top-down 3/4 RPG perspective"
+    },
+    "rock": {
+      "file": "resources/rock.png",
+      "size": [
+        12,
+        8
+      ],
+      "anchor": "bottom",
+      "key": true,
+      "desc": "a small lumpy grey boulder with a couple of cracks and a pale highlight on the top-left, sitting flat on the ground; front view with a gentle top-down 3/4 RPG perspective"
     }
   }
 }

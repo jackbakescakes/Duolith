@@ -3,10 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Duolith - Night Phase</title>
+<title>Duolith</title>
 <style>
   html, body { margin: 0; height: 100%; background: #0b0d17; overflow: hidden; }
-  canvas { display: block; width: 100vw; height: 100vh; image-rendering: pixelated; image-rendering: crisp-edges; }
+  canvas { display: block; width: 100vw; height: 100vh; image-rendering: pixelated; image-rendering: crisp-edges; cursor: crosshair; }
 </style>
 </head>
 <body>
@@ -15,6 +15,13 @@
 (() => {
   // ---------- Config ----------
   const VIEW_W = 480, VIEW_H = 270;          // low-res internal canvas, scaled up for pixel-art look
+
+  // Camera zoom per phase. Night is pulled right back on the giant tower; day is pushed right in on the tiny mage,
+  // so the mage on screen is about the size the tower was at night (the scale reveal the game is built around).
+  const NIGHT_ZOOM = 1, DAY_ZOOM = 4;
+  const ZOOM_EASE = 2.6;                     // how fast the camera zooms between phases (higher = faster)
+
+  // Night: the tower
   const TOWER_SPEED = 38;                    // px/s, slow and heavy
   const TOWER_ACCEL = 5;                     // smoothing: higher = snappier
   const TOWER_W = 28, TOWER_H = 40;          // hitbox; the tower sprite is 40x48, so the hitbox is a bit forgiving
@@ -28,6 +35,19 @@
   const SPAWN_MARGIN = 32;                  // spawn just outside the screen
   const XP_SIZE = 4;
   const MAX_ZOMBIES = 400;
+
+  // Day: the mage (world units; at DAY_ZOOM each world pixel is 4 screen pixels)
+  const MAGE_SPEED = 46;
+  const MAGE_ACCEL = 14;
+  const MAGE_R = 3;                          // body radius for bumping into trees, rocks and the tower
+  const REACH = 14;                          // how far from the mage a tree or rock can be hit
+  const CLICK_SLOP = 10;                     // how far the click can be from a tree or rock and still pick it
+  const SWING_CD = 0.32;                     // seconds between axe/pick swings (hold the mouse to keep swinging)
+  const XP_MAGNET = 12, XP_PICKUP = 4;       // XP drifts to the mage inside MAGNET and is collected inside PICKUP
+  const TREE_HP = 3, ROCK_HP = 4;
+  const TREES = 24, ROCKS = 16;              // resource nodes kept around the tower each dawn
+  const NODE_RING_MIN = 34, NODE_RING_MAX = 220;
+  const COPPER_CHANCE = 0.18, IRON_CHANCE = 0.05;   // per rock broken
 
   const canvas = document.getElementById('c');
   const ctx = canvas.getContext('2d');
@@ -45,6 +65,9 @@
     xp:     'pickups/xp.png',
     arrow:  'projectiles/arrow.png',
     ground: 'tiles/ground.png',
+    mage:   'mage/mage.png',
+    tree:   'resources/tree.png',
+    rock:   'resources/rock.png',
   };
   const sprites = {};   // key -> loaded Image (absent until loaded)
   const flashes = {};   // key -> tinted copy used for hit flashes
@@ -71,6 +94,8 @@
         sprites[key] = img;
         if (key === 'zombie') flashes.zombie = tint(img, '#ffffff');
         if (key === 'tower') flashes.tower = tint(img, '#ffd0d0');
+        if (key === 'tree') flashes.tree = tint(img, '#fff4d0');
+        if (key === 'rock') flashes.rock = tint(img, '#ffffff');
         settle();
       };
       img.onerror = () => { missing.push(ASSET_FILES[key]); settle(); };
@@ -81,35 +106,102 @@
 
   // ---------- Input ----------
   const keys = {};
+  const mouse = { sx: VIEW_W / 2, sy: VIEW_H / 2, wx: 0, wy: 0, down: false };
   addEventListener('keydown', e => {
     keys[e.code] = true;
     if (e.code === 'KeyR') reset();
+    if (e.code === 'KeyN' && !e.repeat) togglePhase();   // TEMPORARY: manual day/night switch for testing
     if (e.code === 'Space') e.preventDefault();
   });
   addEventListener('keyup', e => { keys[e.code] = false; });
-  addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
+  addEventListener('blur', () => { for (const k in keys) keys[k] = false; mouse.down = false; });
+  canvas.addEventListener('mousemove', e => {
+    const r = canvas.getBoundingClientRect();
+    mouse.sx = (e.clientX - r.left) / r.width * VIEW_W;
+    mouse.sy = (e.clientY - r.top) / r.height * VIEW_H;
+  });
+  canvas.addEventListener('mousedown', e => { if (e.button === 0) mouse.down = true; });
+  addEventListener('mouseup', e => { if (e.button === 0) mouse.down = false; });
 
   // ---------- State ----------
-  let tower, zombies, arrows, xpDrops, particles, fireTimer, spawnTimer, time, kills, xpCollected, shake, gameOver;
-  let camX, camY;
+  let phase, zoom, zoomTarget, dayLight, nightNo;
+  let tower, mage, zombies, arrows, xpDrops, particles, nodes, floaters, res;
+  let fireTimer, spawnTimer, time, kills, shake, gameOver;
+  let camX, camY, camTx = 0, camTy = 0;      // camTx/camTy: last screen translation, for mouse and HUD maths
 
   function reset() {
+    phase = 'night'; zoom = zoomTarget = NIGHT_ZOOM; dayLight = 0; nightNo = 1;
     tower = { x: 0, y: 0, vx: 0, vy: 0, hp: 100, maxHp: 100, hitFlash: 0, step: 0, facing: 1 };
-    zombies = []; arrows = []; xpDrops = []; particles = [];
-    fireTimer = 0.6; spawnTimer = 0; time = 0; kills = 0; xpCollected = 0; shake = 0; gameOver = false;
+    mage = { x: 0, y: 0, vx: 0, vy: 0, aim: 0, flip: false, step: 0, swing: 0, swingCd: 0, swingDir: 0 };
+    zombies = []; arrows = []; xpDrops = []; particles = []; nodes = []; floaters = [];
+    res = { wood: 0, stone: 0, copper: 0, iron: 0, xp: 0 };
+    fireTimer = 0.6; spawnTimer = 0; time = 0; kills = 0; shake = 0; gameOver = false;
     camX = 0; camY = 0;
+    topUpNodes();
   }
-  reset();
 
   // ---------- Helpers ----------
   const rand = (a, b) => a + Math.random() * (b - a);
   const dist2 = (ax, ay, bx, by) => (ax - bx) ** 2 + (ay - by) ** 2;
+  const towerBaseY = () => tower.y + TOWER_H / 2;
 
+  function burst(x, y, color, n, spd) {
+    for (let i = 0; i < n; i++) {
+      const a = Math.random() * 6.28, s = rand(spd * 0.3, spd);
+      particles.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, life: rand(0.2, 0.5), max: 0.5, color });
+    }
+  }
+
+  function floatText(x, y, text, color) { floaters.push({ x, y, text, color, life: 1.1 }); }
+
+  // ---------- Phases ----------
+  // TEMPORARY: N switches phase by hand. The real loop (timed day, the zoom-out wake-up, upgrades) comes later.
+  function togglePhase() {
+    if (gameOver) return;
+    if (phase === 'night') startDay(); else startNight();
+  }
+
+  function startDay() {
+    phase = 'day'; zoomTarget = DAY_ZOOM;
+    for (const z of zombies) burst(z.x, z.y, '#6f6a80', 4, 30);   // the dead crumble away at dawn
+    zombies = []; arrows = [];
+    tower.vx = tower.vy = 0;                                        // tower roots where it stopped
+    mage.x = tower.x; mage.y = towerBaseY() + 12; mage.vx = mage.vy = 0;
+    topUpNodes();
+  }
+
+  function startNight() {
+    phase = 'night'; zoomTarget = NIGHT_ZOOM;
+    nightNo++; time = 0; spawnTimer = 0; fireTimer = 0.6;
+    tower.hp = tower.maxHp;                                         // the tower wakes rested
+    mage.swing = 0;
+  }
+
+  // Keep a ring of trees and rocks around wherever the tower has rooted. Far-away ones are dropped.
+  function topUpNodes() {
+    const cx = tower.x, cy = towerBaseY();
+    nodes = nodes.filter(n => dist2(n.x, n.y, cx, cy) < (NODE_RING_MAX + 80) ** 2);
+    let trees = nodes.filter(n => n.type === 'tree').length, rocks = nodes.length - trees;
+    let tries = 0;
+    while ((trees < TREES || rocks < ROCKS) && tries++ < 2000) {
+      const type = trees < TREES && (rocks >= ROCKS || Math.random() < 0.6) ? 'tree' : 'rock';
+      const a = Math.random() * 6.28;
+      const r = NODE_RING_MIN + Math.sqrt(Math.random()) * (NODE_RING_MAX - NODE_RING_MIN);
+      const x = Math.round(cx + Math.cos(a) * r), y = Math.round(cy + Math.sin(a) * r * 0.8);
+      if (nodes.some(n => dist2(n.x, n.y, x, y) < 16 * 16)) continue;
+      const tree = type === 'tree';
+      nodes.push({ type, x, y, hp: tree ? TREE_HP : ROCK_HP, maxHp: tree ? TREE_HP : ROCK_HP,
+                   r: tree ? 3 : 4, shake: 0, flash: 0 });
+      if (tree) trees++; else rocks++;
+    }
+  }
+
+  // ---------- Night ----------
   function spawnZombie() {
     if (zombies.length >= MAX_ZOMBIES) return;
     // spawn on a random point just outside the visible rectangle, around the camera
     const side = Math.floor(Math.random() * 4);
-    const hw = VIEW_W / 2 + SPAWN_MARGIN, hh = VIEW_H / 2 + SPAWN_MARGIN;
+    const hw = VIEW_W / 2 / zoom + SPAWN_MARGIN, hh = VIEW_H / 2 / zoom + SPAWN_MARGIN;
     let x, y;
     if (side === 0) { x = rand(-hw, hw); y = -hh; }
     else if (side === 1) { x = rand(-hw, hw); y = hh; }
@@ -121,13 +213,6 @@
       hp: ZOMBIE_HP, flash: 0, wob: Math.random() * 6.28,
       kx: 0, ky: 0, dir: 1
     });
-  }
-
-  function burst(x, y, color, n, spd) {
-    for (let i = 0; i < n; i++) {
-      const a = Math.random() * 6.28, s = rand(spd * 0.3, spd);
-      particles.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, life: rand(0.2, 0.5), max: 0.5, color });
-    }
   }
 
   function nearestZombie() {
@@ -150,9 +235,7 @@
     fireTimer = FIRE_INTERVAL;
   }
 
-  // ---------- Update ----------
-  function update(dt) {
-    if (gameOver) return;
+  function updateNight(dt) {
     time += dt;
 
     // Tower movement (WASD), smoothed for weight
@@ -169,14 +252,12 @@
     if (tower.vx > 2) tower.facing = 1; else if (tower.vx < -2) tower.facing = -1;
     if (tower.hitFlash > 0) tower.hitFlash -= dt;
 
-    // Camera follows tower smoothly
-    const ck = 1 - Math.exp(-6 * dt);
-    camX += (tower.x - camX) * ck; camY += (tower.y - camY) * ck;
-
-    // Spawning: ramps up with time
-    const rate = 1.2 + time * 0.045;            // zombies per second
-    spawnTimer += dt * rate;
-    while (spawnTimer >= 1) { spawnTimer -= 1; spawnZombie(); }
+    // Spawning: ramps up through the night, and each night starts a little busier
+    if (zoom < NIGHT_ZOOM * 1.5) {               // wait until the camera has pulled back out
+      const rate = 1.2 + time * 0.045 + (nightNo - 1) * 0.6;   // zombies per second
+      spawnTimer += dt * rate;
+      while (spawnTimer >= 1) { spawnTimer -= 1; spawnZombie(); }
+    }
 
     // Auto-fire
     fireTimer -= dt;
@@ -244,9 +325,117 @@
         if (tower.hp <= 0) { tower.hp = 0; gameOver = true; }
       }
     }
+  }
 
-    // XP pickups: stay on the ground; just animate the bob
+  // ---------- Day ----------
+  // Push a circle (the mage) out of another circle. Used for trees, rocks and the tower's rooted base.
+  function pushOut(cx, cy, r) {
+    const dx = mage.x - cx, dy = mage.y - cy, d = Math.hypot(dx, dy), min = r + MAGE_R;
+    if (d < min && d > 0.001) { mage.x = cx + dx / d * min; mage.y = cy + dy / d * min; }
+  }
+
+  // The tree or rock the player is clicking on: within reach of the mage, and nearest to the cursor.
+  function pickTarget() {
+    let best = null, bd = Infinity;
+    for (const n of nodes) {
+      const cy = n.y - (n.type === 'tree' ? 6 : 3);                 // aim at the body, not the base
+      if (dist2(n.x, n.y, mage.x, mage.y) > (REACH + n.r) ** 2) continue;
+      const dm = Math.min(dist2(n.x, cy, mouse.wx, mouse.wy), dist2(n.x, n.y, mouse.wx, mouse.wy));
+      if (dm > (CLICK_SLOP + 6) ** 2) continue;
+      if (dm < bd) { bd = dm; best = n; }
+    }
+    return best;
+  }
+
+  function hitNode(n) {
+    n.hp--; n.shake = 0.15; n.flash = 0.08;
+    const tree = n.type === 'tree';
+    burst(n.x, n.y - (tree ? 6 : 3), tree ? '#8a5a32' : '#9aa0aa', 5, 30);
+    shake = Math.max(shake, 0.6);
+    if (n.hp > 0) return;
+
+    nodes.splice(nodes.indexOf(n), 1);
+    if (tree) {
+      const w = 2 + Math.floor(Math.random() * 2);
+      res.wood += w; floatText(n.x, n.y - 14, '+' + w + ' WOOD', '#d9a066');
+      burst(n.x, n.y - 8, '#3f7a3a', 10, 40);
+    } else {
+      const s = 2 + Math.floor(Math.random() * 2);
+      res.stone += s; floatText(n.x, n.y - 9, '+' + s + ' STONE', '#c4c9d4');
+      burst(n.x, n.y - 3, '#7a808c', 10, 40);
+      if (Math.random() < COPPER_CHANCE) {
+        res.copper++; floatText(n.x, n.y - 15, '+1 COPPER', '#e08a4a');
+        burst(n.x, n.y - 3, '#e08a4a', 8, 35);
+      }
+      if (Math.random() < IRON_CHANCE) {
+        res.iron++; floatText(n.x, n.y - 21, '+1 IRON!', '#b8d0ff');
+        burst(n.x, n.y - 3, '#ffffff', 12, 45); shake = Math.max(shake, 1.5);
+      }
+    }
+  }
+
+  function updateDay(dt) {
+    // Movement (WASD)
+    let ix = (keys.KeyD ? 1 : 0) - (keys.KeyA ? 1 : 0);
+    let iy = (keys.KeyS ? 1 : 0) - (keys.KeyW ? 1 : 0);
+    const len = Math.hypot(ix, iy) || 1;
+    ix /= len; iy /= len;
+    const k = 1 - Math.exp(-MAGE_ACCEL * dt);
+    mage.vx += (ix * MAGE_SPEED - mage.vx) * k;
+    mage.vy += (iy * MAGE_SPEED - mage.vy) * k;
+    mage.x += mage.vx * dt; mage.y += mage.vy * dt;
+    mage.step += Math.hypot(mage.vx, mage.vy) * dt * 0.35;
+    for (const n of nodes) pushOut(n.x, n.y, n.r);
+    pushOut(tower.x, towerBaseY() - 3, 11);
+
+    // Always face the mouse
+    mage.aim = Math.atan2(mouse.wy - (mage.y - 6), mouse.wx - mage.x);
+    mage.flip = mouse.wx < mage.x;
+
+    // Chop / mine: hold the mouse to keep swinging
+    if (mage.swingCd > 0) mage.swingCd -= dt;
+    if (mage.swing > 0) mage.swing -= dt;
+    if (mouse.down && mage.swingCd <= 0) {
+      mage.swingCd = SWING_CD; mage.swing = 0.18; mage.swingDir = mage.aim;
+      const n = pickTarget();
+      if (n) hitNode(n);
+    }
+
+    // XP: drifts toward the mage when close, collected on touch
+    for (let i = xpDrops.length - 1; i >= 0; i--) {
+      const d = xpDrops[i];
+      const dx = mage.x - d.x, dy = (mage.y - 3) - d.y, dd = Math.hypot(dx, dy);
+      if (dd < XP_PICKUP) {
+        xpDrops.splice(i, 1); res.xp++;
+        burst(d.x, d.y, '#3fb6ff', 4, 25);
+        continue;
+      }
+      if (dd < XP_MAGNET) { const p = (1 - dd / XP_MAGNET) * 90 + 20; d.x += dx / dd * p * dt; d.y += dy / dd * p * dt; }
+    }
+  }
+
+  // ---------- Update ----------
+  function update(dt) {
+    if (gameOver) return;
+
+    // ease the zoom in log space so in and out feel the same speed
+    const zk = 1 - Math.exp(-ZOOM_EASE * dt);
+    zoom = Math.exp(Math.log(zoom) + (Math.log(zoomTarget) - Math.log(zoom)) * zk);
+    if (Math.abs(zoom - zoomTarget) < 0.002) zoom = zoomTarget;
+    dayLight += ((phase === 'day' ? 1 : 0) - dayLight) * (1 - Math.exp(-2 * dt));
+
+    if (phase === 'night') updateNight(dt); else updateDay(dt);
+
+    // mouse in world space (uses last frame's camera, close enough)
+    mouse.wx = (mouse.sx - camTx) / zoom; mouse.wy = (mouse.sy - camTy) / zoom;
+
+    // Camera follows whoever you're playing
+    const fx = phase === 'night' ? tower.x : mage.x, fy = phase === 'night' ? tower.y : mage.y - 6;
+    const ck = 1 - Math.exp(-6 * dt);
+    camX += (fx - camX) * ck; camY += (fy - camY) * ck;
+
     for (const x of xpDrops) x.bob += dt * 3;
+    for (const n of nodes) { if (n.shake > 0) n.shake -= dt; if (n.flash > 0) n.flash -= dt; }
 
     // Particles
     for (let i = particles.length - 1; i >= 0; i--) {
@@ -254,22 +443,29 @@
       p.life -= dt; p.x += p.vx * dt; p.y += p.vy * dt; p.vx *= 0.92; p.vy *= 0.92;
       if (p.life <= 0) particles.splice(i, 1);
     }
+    for (let i = floaters.length - 1; i >= 0; i--) {
+      const f = floaters[i]; f.life -= dt; f.y -= 8 * dt;
+      if (f.life <= 0) floaters.splice(i, 1);
+    }
 
     shake *= Math.exp(-10 * dt);
   }
 
   // ---------- Render ----------
-  function rect(x, y, w, h, c) { ctx.fillStyle = c; ctx.fillRect(Math.round(x), Math.round(y), w, h); }
+  // The world is drawn in world coordinates under a zoom transform. snap() rounds to whole screen pixels,
+  // so movement stays smooth at any zoom while edges stay crisp.
+  const snap = v => Math.round(v * zoom) / zoom;
+  function rect(x, y, w, h, c) { ctx.fillStyle = c; ctx.fillRect(snap(x), snap(y), w, h); }
 
   // Soft ground shadow for sprites.
   function shadow(x, y, w, h) { ctx.globalAlpha = 0.4; rect(x, y, w, h, '#07080f'); ctx.globalAlpha = 1; }
 
   // Draw an image anchored at (x, y); ax/ay are 0..1 anchor within the image (0.5, 1 = bottom-centre).
   function drawSprite(img, x, y, ax = 0.5, ay = 0.5, flip = false) {
-    const top = Math.round(y - img.height * ay);
-    if (!flip) { ctx.drawImage(img, Math.round(x - img.width * ax), top); return; }
+    const top = snap(y - img.height * ay);
+    if (!flip) { ctx.drawImage(img, snap(x - img.width * ax), top); return; }
     ctx.save();
-    ctx.translate(Math.round(x), 0); ctx.scale(-1, 1);
+    ctx.translate(snap(x), 0); ctx.scale(-1, 1);
     ctx.drawImage(img, Math.round(-img.width * (1 - ax)), top);
     ctx.restore();
   }
@@ -277,15 +473,15 @@
   // deterministic ground tiles so the world has a sense of movement
   function hash(x, y) { let h = x * 374761393 + y * 668265263; h = (h ^ (h >> 13)) * 1274126177; return ((h ^ (h >> 16)) >>> 0) / 4294967295; }
 
-  function drawGround(ox, oy) {
+  function drawGround(hw, hh) {
     const T = 16;
-    const x0 = Math.floor((camX - VIEW_W / 2) / T) - 1, x1 = Math.floor((camX + VIEW_W / 2) / T) + 1;
-    const y0 = Math.floor((camY - VIEW_H / 2) / T) - 1, y1 = Math.floor((camY + VIEW_H / 2) / T) + 1;
+    const x0 = Math.floor((camX - hw) / T) - 1, x1 = Math.floor((camX + hw) / T) + 1;
+    const y0 = Math.floor((camY - hh) / T) - 1, y1 = Math.floor((camY + hh) / T) + 1;
     for (let ty = y0; ty <= y1; ty++) {
       for (let tx = x0; tx <= x1; tx++) {
         const h = hash(tx, ty);
-        const sx = tx * T - camX + VIEW_W / 2 + ox, sy = ty * T - camY + VIEW_H / 2 + oy;
-        if (sprites.ground) { ctx.drawImage(sprites.ground, Math.round(sx), Math.round(sy)); continue; }
+        const sx = tx * T, sy = ty * T;
+        if (sprites.ground) { ctx.drawImage(sprites.ground, sx, sy); continue; }
         rect(sx, sy, T, T, (tx + ty) & 1 ? '#161b2b' : '#141828');
         if (h > 0.86) rect(sx + (h * 97 % 10), sy + (h * 53 % 10), 2, 2, '#232b45');       // pebbles
         else if (h < 0.06) { rect(sx + 4, sy + 6, 1, 3, '#1d3a2a'); rect(sx + 6, sy + 5, 1, 4, '#1d3a2a'); } // grass tufts
@@ -293,131 +489,264 @@
     }
   }
 
-  function worldToScreen(x, y, ox, oy) { return [x - camX + VIEW_W / 2 + ox, y - camY + VIEW_H / 2 + oy]; }
-
-  function render() {
-    const ox = (Math.random() - 0.5) * shake * 2, oy = (Math.random() - 0.5) * shake * 2;
-    rect(0, 0, VIEW_W, VIEW_H, '#0b0d17');
-    drawGround(ox, oy);
-
-    // XP pickups (blue gems with a little bob)
-    for (const d of xpDrops) {
-      const [sx, sy] = worldToScreen(d.x, d.y, ox, oy);
-      if (sx < -8 || sx > VIEW_W + 8 || sy < -8 || sy > VIEW_H + 8) continue;
-      const b = Math.sin(d.bob) > 0 ? 0 : 1;
-      rect(sx - 2, sy + 3, XP_SIZE, 1, '#0a1a2e'); // shadow
-      if (sprites.xp) {
-        drawSprite(sprites.xp, sx, sy + 3 - b, 0.5, 1);
-      } else {
-        rect(sx - 2, sy - 2 - b + 1, XP_SIZE, XP_SIZE, '#3fb6ff');
-        rect(sx - 1, sy - 2 - b + 1, 1, 1, '#d8f3ff');
-      }
+  function drawZombie(z) {
+    const bob = Math.sin(z.wob) > 0 ? 1 : 0;
+    if (sprites.zombie) {
+      const img = z.flash > 0 && flashes.zombie ? flashes.zombie : sprites.zombie;
+      shadow(z.x - 6, z.y + ZOMBIE_SIZE / 2 - 1, 12, 2);
+      drawSprite(img, z.x, z.y + ZOMBIE_SIZE / 2 - bob, 0.5, 1, z.dir < 0);
+    } else {
+      rect(z.x - 3, z.y + 4, 6, 1, '#07080f');
+      rect(z.x - 4, z.y - 4 - bob, 8, 8, z.flash > 0 ? '#ffffff' : '#4f8a3a');
+      if (z.flash <= 0) { rect(z.x - 2, z.y - 2 - bob, 1, 1, '#ff3b3b'); rect(z.x + 1, z.y - 2 - bob, 1, 1, '#ff3b3b'); }
     }
+  }
 
-    // Zombies (sorted-ish by y: draw in array order, good enough for prototype)
-    for (const z of zombies) {
-      const [sx, sy] = worldToScreen(z.x, z.y, ox, oy);
-      if (sx < -10 || sx > VIEW_W + 10 || sy < -10 || sy > VIEW_H + 10) continue;
-      const bob = Math.sin(z.wob) > 0 ? 1 : 0;
-      if (!sprites.zombie) rect(sx - 3, sy + 4, 6, 1, '#07080f');                                 // shadow
-      if (sprites.zombie) {
-        const img = z.flash > 0 && flashes.zombie ? flashes.zombie : sprites.zombie;
-        shadow(sx - 6, sy + ZOMBIE_SIZE / 2 - 1, 12, 2);
-        drawSprite(img, sx, sy + ZOMBIE_SIZE / 2 - bob, 0.5, 1, z.dir < 0);
-      } else {
-        rect(sx - 4, sy - 4 - bob, 8, 8, z.flash > 0 ? '#ffffff' : '#4f8a3a');
-        if (z.flash <= 0) { rect(sx - 2, sy - 2 - bob, 1, 1, '#ff3b3b'); rect(sx + 1, sy - 2 - bob, 1, 1, '#ff3b3b'); }
-      }
-    }
-
-    // Tower
-    {
-      const [sx, sy] = worldToScreen(tower.x, tower.y, ox, oy);
-      const moving = Math.hypot(tower.vx, tower.vy) > 3;
-      const sway = moving ? Math.sin(tower.step * 6.28) : 0;
-      const lift = moving ? Math.abs(Math.sin(tower.step * 6.28)) * 1.5 : 0;
-      if (!sprites.tower) rect(sx - 10, sy + 10, 20, 3, '#07080f');                               // shadow
-      if (sprites.tower) {
-        const img = tower.hitFlash > 0 && flashes.tower ? flashes.tower : sprites.tower;
-        shadow(sx - 16, sy + TOWER_H / 2 - 3, 32, 4);
-        drawSprite(img, sx + sway * 0.6, sy + TOWER_H / 2 - lift, 0.5, 1);
-      } else {
+  function drawTower() {
+    const sx = tower.x, sy = tower.y;
+    const rooted = phase === 'day';
+    const moving = !rooted && Math.hypot(tower.vx, tower.vy) > 3;
+    const sway = moving ? Math.sin(tower.step * 6.28) : 0;
+    const lift = moving ? Math.abs(Math.sin(tower.step * 6.28)) * 1.5 : 0;
+    const sink = rooted ? 2 : 0;               // by day the root-legs are dug into the ground
+    if (sprites.tower) {
+      const img = tower.hitFlash > 0 && flashes.tower ? flashes.tower : sprites.tower;
+      shadow(sx - 16, sy + TOWER_H / 2 - 3, 32, 4);
+      drawSprite(img, sx + sway * 0.6, sy + TOWER_H / 2 - lift + sink, 0.5, 1);
+    } else {
+      rect(sx - 10, sy + 10, 20, 3, '#07080f');                               // shadow
       // root-legs (two stubby legs alternating)
-      rect(sx - 7, sy + 7 - (sway > 0 ? lift : 0), 4, 5, '#4a3a2a');
-      rect(sx + 3, sy + 7 - (sway < 0 ? lift : 0), 4, 5, '#4a3a2a');
+      rect(sx - 7, sy + 7 - (sway > 0 ? lift : 0), 4, 5 - sink, '#4a3a2a');
+      rect(sx + 3, sy + 7 - (sway < 0 ? lift : 0), 4, 5 - sink, '#4a3a2a');
       const PW = 18, PH = 26;   // placeholder tower size (independent of the hitbox)
-      const bx = sx - PW / 2 + sway * 0.6, by = sy - PH / 2 - lift * 0.5;
+      const bx = sx - PW / 2 + sway * 0.6, by = sy - PH / 2 - lift * 0.5 + sink;
       const body = tower.hitFlash > 0 ? '#ffd0d0' : '#8a8f99';
       const dark = tower.hitFlash > 0 ? '#e0a0a0' : '#6a6f79';
       rect(bx, by, PW, PH - 4, body);                               // body
       rect(bx + PW - 4, by, 4, PH - 4, dark);                       // shaded side
-      // battlements
-      for (let i = 0; i < 3; i++) rect(bx + i * 7 - (i === 0 ? 0 : 1), by - 4, 4, 4, body);
-      // brick lines
-      rect(bx, by + 8, PW, 1, dark); rect(bx, by + 15, PW, 1, dark);
-      // window + door
-      rect(bx + 7, by + 3, 4, 4, '#1b1f2a'); rect(bx + 8, by + 4, 2, 2, '#ffcf5a');
-      // little eyes so it feels alive
-      rect(bx + (tower.facing > 0 ? 11 : 4), by + 11, 2, 2, '#ffe9a0');
+      for (let i = 0; i < 3; i++) rect(bx + i * 7 - (i === 0 ? 0 : 1), by - 4, 4, 4, body);   // battlements
+      rect(bx, by + 8, PW, 1, dark); rect(bx, by + 15, PW, 1, dark);                         // brick lines
+      rect(bx + 7, by + 3, 4, 4, '#1b1f2a'); rect(bx + 8, by + 4, 2, 2, '#ffcf5a');          // window
+      if (!rooted) rect(bx + (tower.facing > 0 ? 11 : 4), by + 11, 2, 2, '#ffe9a0');         // eyes: closed by day
+    }
+    if (rooted) {   // churned soil where the roots go in
+      rect(sx - 13, sy + TOWER_H / 2 - 1, 26, 2, '#3a2c20');
+      rect(sx - 9, sy + TOWER_H / 2 + 1, 4, 1, '#3a2c20'); rect(sx + 5, sy + TOWER_H / 2 + 1, 5, 1, '#3a2c20');
+    }
+  }
+
+  function drawNode(n) {
+    const jig = n.shake > 0 ? (Math.random() < 0.5 ? -1 : 1) * 0.5 : 0;
+    const x = n.x + jig, y = n.y;
+    if (n.type === 'tree') {
+      if (sprites.tree) {
+        shadow(x - 6, y - 1, 12, 2);
+        drawSprite(n.flash > 0 && flashes.tree ? flashes.tree : sprites.tree, x, y, 0.5, 1);
+        return;
       }
+      const lit = n.flash > 0;
+      shadow(x - 5, y - 1, 10, 2);
+      rect(x - 1, y - 5, 3, 5, lit ? '#d9b080' : '#5a3a22');                  // trunk
+      const g1 = lit ? '#cfe8a0' : '#2f5a2c', g2 = lit ? '#e8f8c0' : '#3f7a3a', g3 = lit ? '#ffffff' : '#5a9a4a';
+      rect(x - 6, y - 11, 13, 6, g1);
+      rect(x - 5, y - 14, 11, 4, g2);
+      rect(x - 3, y - 16, 7, 3, g2);
+      rect(x - 3, y - 14, 3, 2, g3);                                           // highlight
+    } else {
+      if (sprites.rock) {
+        shadow(x - 5, y - 1, 10, 2);
+        drawSprite(n.flash > 0 && flashes.rock ? flashes.rock : sprites.rock, x, y, 0.5, 1);
+        return;
+      }
+      const lit = n.flash > 0;
+      shadow(x - 5, y - 1, 10, 2);
+      rect(x - 5, y - 4, 10, 4, lit ? '#ffffff' : '#6a707c');
+      rect(x - 4, y - 6, 7, 2, lit ? '#ffffff' : '#808794');
+      rect(x - 3, y - 6, 3, 1, lit ? '#ffffff' : '#a9b0bc');                  // highlight
+      rect(x + 2, y - 3, 2, 1, '#4e5460');                                     // crack
+    }
+    if (n.hp < n.maxHp) {   // tiny damage pips
+      for (let i = 0; i < n.maxHp; i++) rect(n.x - n.maxHp + i * 2, n.y + 2, 1, 1, i < n.hp ? '#f2e6b0' : '#3a3a48');
+    }
+  }
+
+  function drawMage() {
+    const moving = Math.hypot(mage.vx, mage.vy) > 3;
+    const bob = moving && Math.sin(mage.step * 6.28) > 0 ? 1 : 0;
+    const x = mage.x, y = mage.y;
+    const f = mage.flip ? -1 : 1;
+    shadow(x - 3, y - 1, 6, 1);
+    if (sprites.mage) {
+      drawSprite(sprites.mage, x, y - bob, 0.5, 1, mage.flip);
+    } else {
+      // placeholder: pointy hat, face, robe, little feet
+      rect(x - 3, y - 7 - bob, 6, 6, '#5b3f9a');                    // robe
+      rect(x - 3, y - 2 - bob, 6, 1, '#3f2a70');                    // hem
+      rect(x - 2, y - 10 - bob, 4, 3, '#f0c8a0');                   // face
+      rect(x + (f > 0 ? 0 : -1), y - 9 - bob, 1, 1, '#1b1f2a');     // eye, on the side he's facing
+      rect(x - 3, y - 11 - bob, 6, 1, '#3f2a70');                   // hat brim
+      rect(x - 2, y - 13 - bob, 4, 2, '#5b3f9a');
+      rect(x - 1 + (f > 0 ? 1 : -1), y - 15 - bob, 2, 2, '#5b3f9a'); // hat tip leans back
+      rect(x - 2, y - 1, 1, 1, '#2a2030'); rect(x + 1, y - 1, 1, 1, '#2a2030');   // feet
+    }
+    // the staff/tool points at the mouse; on a swing it chops forward through an arc
+    const swingT = mage.swing > 0 ? mage.swing / 0.18 : 0;
+    const a = (mage.swing > 0 ? mage.swingDir : mage.aim) + (mage.swing > 0 ? (swingT - 0.5) * 1.8 * f : 0);
+    const hx = x + 2 * f, hy = y - 6 - bob;
+    for (let i = 0; i < 6; i++) rect(hx + Math.cos(a) * i, hy + Math.sin(a) * i, 1, 1, i === 5 ? '#ffcf5a' : '#8a5a32');
+  }
+
+  function render() {
+    const Z = zoom;
+    const hw = VIEW_W / 2 / Z, hh = VIEW_H / 2 / Z;
+    const ox = (Math.random() - 0.5) * shake * 2, oy = (Math.random() - 0.5) * shake * 2;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.fillStyle = '#0b0d17'; ctx.fillRect(0, 0, VIEW_W, VIEW_H);
+
+    camTx = Math.round(VIEW_W / 2 - camX * Z + ox); camTy = Math.round(VIEW_H / 2 - camY * Z + oy);
+    ctx.setTransform(Z, 0, 0, Z, camTx, camTy);
+    const onScreen = (x, y, m) => x > camX - hw - m && x < camX + hw + m && y > camY - hh - m && y < camY + hh + m;
+
+    drawGround(hw, hh);
+
+    // XP pickups (blue gems with a little bob)
+    for (const d of xpDrops) {
+      if (!onScreen(d.x, d.y, 8)) continue;
+      const b = Math.sin(d.bob) > 0 ? 0 : 1;
+      rect(d.x - 2, d.y + 3, XP_SIZE, 1, '#0a1a2e'); // shadow
+      if (sprites.xp) {
+        drawSprite(sprites.xp, d.x, d.y + 3 - b, 0.5, 1);
+      } else {
+        rect(d.x - 2, d.y - 2 - b + 1, XP_SIZE, XP_SIZE, '#3fb6ff');
+        rect(d.x - 1, d.y - 2 - b + 1, 1, 1, '#d8f3ff');
+      }
+    }
+
+    // Everything that stands up is drawn back-to-front by where its feet are
+    const list = [];
+    for (const n of nodes) if (onScreen(n.x, n.y, 24)) list.push([n.y, 0, n]);
+    for (const z of zombies) if (onScreen(z.x, z.y, 12)) list.push([z.y + ZOMBIE_SIZE / 2, 1, z]);
+    list.push([towerBaseY(), 2, tower]);
+    if (phase === 'day') list.push([mage.y, 3, mage]);
+    list.sort((a, b) => a[0] - b[0]);
+    for (const [, kind, o] of list) {
+      if (kind === 0) drawNode(o); else if (kind === 1) drawZombie(o); else if (kind === 2) drawTower(); else drawMage();
     }
 
     // Arrows
     for (const a of arrows) {
-      const [sx, sy] = worldToScreen(a.x, a.y, ox, oy);
       if (sprites.arrow) {
         const im = sprites.arrow;      // authored pointing right (+x)
         ctx.save();
-        ctx.translate(Math.round(sx), Math.round(sy)); ctx.rotate(a.a);
+        ctx.translate(snap(a.x), snap(a.y)); ctx.rotate(a.a);
         ctx.drawImage(im, -Math.round(im.width / 2), -Math.round(im.height / 2));
         ctx.restore();
       } else {
         const dx = Math.cos(a.a), dy = Math.sin(a.a);
-        for (let i = 0; i < 4; i++) rect(sx - dx * i * 2, sy - dy * i * 2, 2, 2, i === 0 ? '#ffffff' : '#c9b27a');
+        for (let i = 0; i < 4; i++) rect(a.x - dx * i * 2, a.y - dy * i * 2, 2, 2, i === 0 ? '#ffffff' : '#c9b27a');
       }
     }
 
-    // Particles
+    // Particles (smaller in world units when zoomed in, so they stay chunky-but-small on screen)
+    const ps = Z >= 2 ? 1 : 2;
     for (const p of particles) {
-      const [sx, sy] = worldToScreen(p.x, p.y, ox, oy);
       ctx.globalAlpha = Math.max(0, p.life / p.max);
-      rect(sx, sy, 2, 2, p.color);
+      rect(p.x, p.y, ps, ps, p.color);
     }
     ctx.globalAlpha = 1;
 
-    // Night vignette
-    const g = ctx.createRadialGradient(VIEW_W / 2, VIEW_H / 2, 90, VIEW_W / 2, VIEW_H / 2, 270);
-    g.addColorStop(0, 'rgba(5,6,20,0)'); g.addColorStop(1, 'rgba(5,6,20,0.55)');
-    ctx.fillStyle = g; ctx.fillRect(0, 0, VIEW_W, VIEW_H);
+    // ---- screen space from here ----
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    const toScreen = (x, y) => [x * Z + camTx, y * Z + camTy];
+
+    // Lighting: night vignette fades into warm morning light
+    if (dayLight < 0.999) {
+      const g = ctx.createRadialGradient(VIEW_W / 2, VIEW_H / 2, 90, VIEW_W / 2, VIEW_H / 2, 270);
+      g.addColorStop(0, 'rgba(5,6,20,0)'); g.addColorStop(1, 'rgba(5,6,20,0.55)');
+      ctx.globalAlpha = 1 - dayLight; ctx.fillStyle = g; ctx.fillRect(0, 0, VIEW_W, VIEW_H);
+    }
+    if (dayLight > 0.001) {
+      // the ground art is night-toned, so lift it toward warm morning colour without greying it out
+      ctx.globalCompositeOperation = 'soft-light';
+      ctx.globalAlpha = dayLight; ctx.fillStyle = '#ffd890'; ctx.fillRect(0, 0, VIEW_W, VIEW_H);
+      ctx.globalCompositeOperation = 'screen';
+      ctx.globalAlpha = dayLight * 0.5; ctx.fillStyle = '#3a3018'; ctx.fillRect(0, 0, VIEW_W, VIEW_H);
+      ctx.globalCompositeOperation = 'source-over';
+    }
+    ctx.globalAlpha = 1;
+
+    // Floating "+2 WOOD" text
+    ctx.font = '8px monospace'; ctx.textBaseline = 'top'; ctx.textAlign = 'center';
+    for (const f of floaters) {
+      const [sx, sy] = toScreen(f.x, f.y);
+      ctx.globalAlpha = Math.min(1, f.life * 2);
+      ctx.fillStyle = '#000'; ctx.fillText(f.text, Math.round(sx) + 1, Math.round(sy) + 1);
+      ctx.fillStyle = f.color; ctx.fillText(f.text, Math.round(sx), Math.round(sy));
+    }
+    ctx.globalAlpha = 1; ctx.textAlign = 'left';
+
+    // By day: a pointer at the screen edge toward the nearest XP that's off screen
+    if (phase === 'day' && xpDrops.length) {
+      let best = null, bd = Infinity;
+      for (const d of xpDrops) { const dd = dist2(d.x, d.y, mage.x, mage.y); if (dd < bd) { bd = dd; best = d; } }
+      const [sx, sy] = toScreen(best.x, best.y);
+      if (sx < 0 || sx > VIEW_W || sy < 0 || sy > VIEW_H) {
+        const px = Math.max(10, Math.min(VIEW_W - 10, sx)), py = Math.max(44, Math.min(VIEW_H - 20, sy));
+        const pulse = Math.sin(performance.now() / 150) > 0 ? 1 : 0;
+        ctx.fillStyle = '#3fb6ff';
+        ctx.fillRect(px - 2 - pulse, py - 2 - pulse, 4 + pulse * 2, 4 + pulse * 2);
+        ctx.fillStyle = '#d8f3ff'; ctx.fillRect(px - 1, py - 1, 1, 1);
+      }
+    }
 
     // HUD
-    rect(8, 8, 62, 6, '#000'); rect(9, 9, Math.round(60 * tower.hp / tower.maxHp), 4, '#d94a4a');
     ctx.font = '8px monospace'; ctx.textBaseline = 'top';
-    ctx.fillStyle = '#cfd6ff';
-    ctx.fillText('KILLS ' + kills, 8, 18);
-    ctx.fillStyle = '#3fb6ff';
-    ctx.fillText('XP ON GROUND ' + xpDrops.length, 8, 28);
-    ctx.fillStyle = '#8a90b0';
-    const m = Math.floor(time / 60), s = Math.floor(time % 60);
-    ctx.fillText(m + ':' + String(s).padStart(2, '0'), VIEW_W - 30, 8);
-    ctx.fillText('WASD move  R restart', 8, VIEW_H - 14);
+    const label = (t, x, y, c) => { ctx.fillStyle = '#000'; ctx.fillText(t, x + 1, y + 1); ctx.fillStyle = c; ctx.fillText(t, x, y); };
 
-    // bow cooldown pip
-    const cd = 1 - Math.max(0, fireTimer) / FIRE_INTERVAL;
-    rect(VIEW_W / 2 - 15, VIEW_H - 12, 30, 3, '#000'); rect(VIEW_W / 2 - 14, VIEW_H - 11, Math.round(28 * Math.min(1, cd)), 1, '#f2e6b0');
+    // resources, always visible
+    const row = [['WOOD', res.wood, '#d9a066'], ['STONE', res.stone, '#c4c9d4'], ['COPPER', res.copper, '#e08a4a'],
+                 ['IRON', res.iron, '#b8d0ff'], ['XP', res.xp, '#3fb6ff']];
+    let rx = 8;
+    for (const [n, v, c] of row) {
+      ctx.fillStyle = '#000'; ctx.fillRect(rx, VIEW_H - 23, 5, 5); ctx.fillStyle = c; ctx.fillRect(rx + 1, VIEW_H - 22, 3, 3);
+      const t = n + ' ' + v; label(t, rx + 8, VIEW_H - 24, '#e8e8f0');
+      rx += 8 + ctx.measureText(t).width + 10;
+    }
+
+    if (phase === 'night') {
+      ctx.fillStyle = '#000'; ctx.fillRect(8, 8, 62, 6); ctx.fillStyle = '#d94a4a'; ctx.fillRect(9, 9, Math.round(60 * tower.hp / tower.maxHp), 4);
+      label('NIGHT ' + nightNo + '   KILLS ' + kills, 8, 18, '#cfd6ff');
+      label('XP ON GROUND ' + xpDrops.length, 8, 28, '#3fb6ff');
+      const m = Math.floor(time / 60), s = Math.floor(time % 60);
+      label(m + ':' + String(s).padStart(2, '0'), VIEW_W - 30, 8, '#8a90b0');
+      label('WASD steer tower   N dawn   R restart', 8, VIEW_H - 12, '#8a90b0');
+      // bow cooldown pip
+      const cd = 1 - Math.max(0, fireTimer) / FIRE_INTERVAL;
+      ctx.fillStyle = '#000'; ctx.fillRect(VIEW_W / 2 - 15, VIEW_H - 36, 30, 3);
+      ctx.fillStyle = '#f2e6b0'; ctx.fillRect(VIEW_W / 2 - 14, VIEW_H - 35, Math.round(28 * Math.min(1, cd)), 1);
+    } else {
+      label('DAY ' + nightNo, 8, 8, '#ffe9a0');
+      label('XP ON GROUND ' + xpDrops.length, 8, 18, '#3fb6ff');
+      label('WASD walk   MOUSE aim   CLICK chop/mine   N dusk   R restart', 8, VIEW_H - 12, '#c8b890');
+    }
 
     if (gameOver) {
+      const m = Math.floor(time / 60), s = Math.floor(time % 60);
       ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(0, 0, VIEW_W, VIEW_H);
       ctx.fillStyle = '#fff'; ctx.font = '16px monospace'; ctx.textAlign = 'center';
       ctx.fillText('THE TOWER FALLS', VIEW_W / 2, VIEW_H / 2 - 20);
       ctx.font = '8px monospace';
-      ctx.fillText('Kills ' + kills + '   Survived ' + m + ':' + String(s).padStart(2, '0'), VIEW_W / 2, VIEW_H / 2 + 2);
+      ctx.fillText('Night ' + nightNo + '   Kills ' + kills + '   Survived ' + m + ':' + String(s).padStart(2, '0'), VIEW_W / 2, VIEW_H / 2 + 2);
       ctx.fillText('Press R to restart', VIEW_W / 2, VIEW_H / 2 + 16);
       ctx.textAlign = 'left';
     }
   }
 
   // ---------- Loop ----------
+  reset();
+  // test hook: lets an automated check read game state; harmless for players
+  window.__duolith = { get: () => ({ phase, zoom, res, xp: xpDrops.length, nodes: nodes.length, nodeList: nodes, xpList: xpDrops, mage, tower, zombies: zombies.length, gameOver, camTx, camTy }),
+                       setXpDrops: a => { xpDrops = a; } };
   let last = performance.now();
   function frame(now) {
     const dt = Math.min(0.05, (now - last) / 1000);
