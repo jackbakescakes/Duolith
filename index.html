@@ -17,15 +17,15 @@
   const VIEW_W = 480, VIEW_H = 270;          // low-res internal canvas, scaled up for pixel-art look
   const TOWER_SPEED = 38;                    // px/s, slow and heavy
   const TOWER_ACCEL = 5;                     // smoothing: higher = snappier
-  const TOWER_W = 18, TOWER_H = 26;
+  const TOWER_W = 28, TOWER_H = 40;          // hitbox; the tower sprite is 40x48, so the hitbox is a bit forgiving
   const FIRE_INTERVAL = 2.0;                 // seconds between bow shots
   const ARROW_SPEED = 220;
   const ARROW_LIFE = 1.4;
   const ARROW_DAMAGE = 1;
-  const ZOMBIE_SIZE = 8;
+  const ZOMBIE_SIZE = 12;                    // hitbox; the zombie sprite is 20x20
   const ZOMBIE_SPEED_MIN = 14, ZOMBIE_SPEED_MAX = 22;
   const ZOMBIE_HP = 2;
-  const SPAWN_MARGIN = 20;                   // spawn just outside the screen
+  const SPAWN_MARGIN = 32;                  // spawn just outside the screen
   const XP_SIZE = 4;
   const MAX_ZOMBIES = 400;
 
@@ -230,8 +230,8 @@
       for (let j = i - 1, c = 0; j >= 0 && c < 6; j--, c++) {
         const o = zombies[j];
         const ox = z.x - o.x, oy = z.y - o.y, od2 = ox * ox + oy * oy;
-        if (od2 < 36 && od2 > 0.01) {
-          const od = Math.sqrt(od2), push = (6 - od) * 0.5;
+        if (od2 < 100 && od2 > 0.01) {
+          const od = Math.sqrt(od2), push = (10 - od) * 0.5;
           z.x += (ox / od) * push * dt * 20; z.y += (oy / od) * push * dt * 20;
         }
       }
@@ -260,6 +260,9 @@
 
   // ---------- Render ----------
   function rect(x, y, w, h, c) { ctx.fillStyle = c; ctx.fillRect(Math.round(x), Math.round(y), w, h); }
+
+  // Soft ground shadow for sprites.
+  function shadow(x, y, w, h) { ctx.globalAlpha = 0.4; rect(x, y, w, h, '#07080f'); ctx.globalAlpha = 1; }
 
   // Draw an image anchored at (x, y); ax/ay are 0..1 anchor within the image (0.5, 1 = bottom-centre).
   function drawSprite(img, x, y, ax = 0.5, ay = 0.5, flip = false) {
@@ -316,12 +319,13 @@
       const [sx, sy] = worldToScreen(z.x, z.y, ox, oy);
       if (sx < -10 || sx > VIEW_W + 10 || sy < -10 || sy > VIEW_H + 10) continue;
       const bob = Math.sin(z.wob) > 0 ? 1 : 0;
-      rect(sx - 3, sy + 4, 6, 1, '#07080f');                                  // shadow
+      if (!sprites.zombie) rect(sx - 3, sy + 4, 6, 1, '#07080f');                                 // shadow
       if (sprites.zombie) {
         const img = z.flash > 0 && flashes.zombie ? flashes.zombie : sprites.zombie;
-        drawSprite(img, sx, sy + 4 - bob, 0.5, 1, z.dir < 0);
+        shadow(sx - 6, sy + ZOMBIE_SIZE / 2 - 1, 12, 2);
+        drawSprite(img, sx, sy + ZOMBIE_SIZE / 2 - bob, 0.5, 1, z.dir < 0);
       } else {
-        rect(sx - 4, sy - 4 - bob, ZOMBIE_SIZE, ZOMBIE_SIZE, z.flash > 0 ? '#ffffff' : '#4f8a3a');
+        rect(sx - 4, sy - 4 - bob, 8, 8, z.flash > 0 ? '#ffffff' : '#4f8a3a');
         if (z.flash <= 0) { rect(sx - 2, sy - 2 - bob, 1, 1, '#ff3b3b'); rect(sx + 1, sy - 2 - bob, 1, 1, '#ff3b3b'); }
       }
     }
@@ -332,23 +336,25 @@
       const moving = Math.hypot(tower.vx, tower.vy) > 3;
       const sway = moving ? Math.sin(tower.step * 6.28) : 0;
       const lift = moving ? Math.abs(Math.sin(tower.step * 6.28)) * 1.5 : 0;
-      rect(sx - 10, sy + 10, 20, 3, '#07080f');                               // shadow
+      if (!sprites.tower) rect(sx - 10, sy + 10, 20, 3, '#07080f');                               // shadow
       if (sprites.tower) {
         const img = tower.hitFlash > 0 && flashes.tower ? flashes.tower : sprites.tower;
-        drawSprite(img, sx + sway * 0.6, sy + 12 - lift, 0.5, 1);
+        shadow(sx - 16, sy + TOWER_H / 2 - 3, 32, 4);
+        drawSprite(img, sx + sway * 0.6, sy + TOWER_H / 2 - lift, 0.5, 1);
       } else {
       // root-legs (two stubby legs alternating)
       rect(sx - 7, sy + 7 - (sway > 0 ? lift : 0), 4, 5, '#4a3a2a');
       rect(sx + 3, sy + 7 - (sway < 0 ? lift : 0), 4, 5, '#4a3a2a');
-      const bx = sx - TOWER_W / 2 + sway * 0.6, by = sy - TOWER_H / 2 - lift * 0.5;
+      const PW = 18, PH = 26;   // placeholder tower size (independent of the hitbox)
+      const bx = sx - PW / 2 + sway * 0.6, by = sy - PH / 2 - lift * 0.5;
       const body = tower.hitFlash > 0 ? '#ffd0d0' : '#8a8f99';
       const dark = tower.hitFlash > 0 ? '#e0a0a0' : '#6a6f79';
-      rect(bx, by, TOWER_W, TOWER_H - 4, body);                               // body
-      rect(bx + TOWER_W - 4, by, 4, TOWER_H - 4, dark);                       // shaded side
+      rect(bx, by, PW, PH - 4, body);                               // body
+      rect(bx + PW - 4, by, 4, PH - 4, dark);                       // shaded side
       // battlements
       for (let i = 0; i < 3; i++) rect(bx + i * 7 - (i === 0 ? 0 : 1), by - 4, 4, 4, body);
       // brick lines
-      rect(bx, by + 8, TOWER_W, 1, dark); rect(bx, by + 15, TOWER_W, 1, dark);
+      rect(bx, by + 8, PW, 1, dark); rect(bx, by + 15, PW, 1, dark);
       // window + door
       rect(bx + 7, by + 3, 4, 4, '#1b1f2a'); rect(bx + 8, by + 4, 2, 2, '#ffcf5a');
       // little eyes so it feels alive

@@ -4,14 +4,15 @@
   "sprites": {
     "tower": {
       "file": "tower/tower.png",
-      "size": [24, 32],
+      "size": [40, 48],
+      "colours": 24,
       "anchor": "bottom",
       "key": true,
       "desc": "a squat grey stone watchtower with battlements on top, mossy brick courses, one small glowing yellow window, and two thick gnarled wooden root-legs at the base that it walks on; slightly alive and characterful; front view with a gentle top-down 3/4 RPG perspective"
     },
     "zombie": {
       "file": "enemies/zombie.png",
-      "size": [12, 12],
+      "size": [20, 20],
       "anchor": "bottom",
       "key": true,
       "desc": "a small shambling green-skinned zombie with tattered clothes, arms stretched forward, tiny red eyes; front view with a gentle top-down 3/4 RPG perspective, facing right"

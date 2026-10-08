@@ -10,10 +10,11 @@ reduce to a small palette -> pad to exactly the target size -> save an optimised
 
 --sprite NAME   take size, output path, anchor and key from tools/sprites.json
 --size WxH      target pixel size (overrides the spec)
---key COLOUR    background colour to remove, e.g. '#FF00FF' (default for sprites with "key": true)
+--key COLOUR    background colour to remove: '#RRGGBB' or 'auto' (sample the corners). Default is auto
+                for sprites with "key": true, because Gemini's magenta varies from image to image.
 --no-key        do not remove any background (use when the image already has real alpha)
 --tolerance N   how far from the key colour still counts as background (default 60, per-channel sum/3)
---colours N     palette size (default from sprites.json, else 16; 0 = keep all colours)
+--colours N     palette size (default: the sprite's "colours" in sprites.json, else max_colours, else 16; 0 = keep all)
 --resample      box (default, cleanest), nearest (crispest, can be noisy), lanczos (softest)
 --anchor        where the subject sits if it doesn't fill the target: bottom | center
 --tile          treat as a seamless tile: no keying, no cropping, straight resize to the exact size
@@ -39,6 +40,20 @@ def parse_colour(s):
     if len(s) != 6:
         raise ValueError(f"bad colour '{s}', expected #RRGGBB")
     return tuple(int(s[i:i + 2], 16) for i in (0, 2, 4))
+
+
+def sample_key(img, patch=12):
+    """Median colour of the four corner patches. Gemini's 'magenta' varies per image (and JPEG shifts it),
+    so measuring it beats trusting #FF00FF."""
+    w, h = img.size
+    rgb = img.convert("RGB")
+    vals = [[], [], []]
+    for x0, y0 in ((0, 0), (w - patch, 0), (0, h - patch), (w - patch, h - patch)):
+        for y in range(y0, y0 + patch):
+            for x in range(x0, x0 + patch):
+                for c, v in enumerate(rgb.getpixel((x, y))):
+                    vals[c].append(v)
+    return tuple(sorted(v)[len(v) // 2] for v in vals)
 
 
 def remove_background(img, key, tol):
@@ -126,17 +141,21 @@ def main():
     if dst is None:
         sys.exit("need an output path or --sprite")
     anchor = a.anchor or spec.get("anchor", "center")
-    colours = a.colours if a.colours is not None else data.get("max_colours", 16)
+    colours = a.colours if a.colours is not None else spec.get("colours", data.get("max_colours", 16))
     tile = a.tile or spec.get("tile", False)
-    key = None
+    key_arg = None
     if not tile and not a.no_key:
-        if a.key:
-            key = parse_colour(a.key)
-        elif spec.get("key", False):
-            key = parse_colour("#FF00FF")
+        key_arg = a.key or ("auto" if spec.get("key", False) else None)
 
     img = Image.open(a.src).convert("RGBA")
     print(f"source  {a.src}  {img.width}x{img.height}")
+
+    key = None
+    if key_arg == "auto":
+        key = sample_key(img)
+        print(f"key     auto-detected background #{key[0]:02X}{key[1]:02X}{key[2]:02X}")
+    elif key_arg:
+        key = parse_colour(key_arg)
 
     if tile:
         out = img.resize((tw, th), RESAMPLE[a.resample])
