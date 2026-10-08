@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Duolith - Night Phase</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #0b0d17; overflow: hidden; }
+  canvas { display: block; width: 100vw; height: 100vh; image-rendering: pixelated; image-rendering: crisp-edges; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+(() => {
+  // ---------- Config ----------
+  const VIEW_W = 480, VIEW_H = 270;          // low-res internal canvas, scaled up for pixel-art look
+  const TOWER_SPEED = 38;                    // px/s, slow and heavy
+  const TOWER_ACCEL = 5;                     // smoothing: higher = snappier
+  const TOWER_W = 18, TOWER_H = 26;
+  const FIRE_INTERVAL = 2.0;                 // seconds between bow shots
+  const ARROW_SPEED = 220;
+  const ARROW_LIFE = 1.4;
+  const ARROW_DAMAGE = 1;
+  const ZOMBIE_SIZE = 8;
+  const ZOMBIE_SPEED_MIN = 14, ZOMBIE_SPEED_MAX = 22;
+  const ZOMBIE_HP = 2;
+  const SPAWN_MARGIN = 20;                   // spawn just outside the screen
+  const XP_SIZE = 4;
+  const MAX_ZOMBIES = 400;
+
+  const canvas = document.getElementById('c');
+  const ctx = canvas.getContext('2d');
+  canvas.width = VIEW_W; canvas.height = VIEW_H;
+  ctx.imageSmoothingEnabled = false;
+
+  // ---------- Input ----------
+  const keys = {};
+  addEventListener('keydown', e => {
+    keys[e.code] = true;
+    if (e.code === 'KeyR') reset();
+    if (e.code === 'Space') e.preventDefault();
+  });
+  addEventListener('keyup', e => { keys[e.code] = false; });
+  addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
+
+  // ---------- State ----------
+  let tower, zombies, arrows, xpDrops, particles, fireTimer, spawnTimer, time, kills, xpCollected, shake, gameOver;
+  let camX, camY;
+
+  function reset() {
+    tower = { x: 0, y: 0, vx: 0, vy: 0, hp: 100, maxHp: 100, hitFlash: 0, step: 0, facing: 1 };
+    zombies = []; arrows = []; xpDrops = []; particles = [];
+    fireTimer = 0.6; spawnTimer = 0; time = 0; kills = 0; xpCollected = 0; shake = 0; gameOver = false;
+    camX = 0; camY = 0;
+  }
+  reset();
+
+  // ---------- Helpers ----------
+  const rand = (a, b) => a + Math.random() * (b - a);
+  const dist2 = (ax, ay, bx, by) => (ax - bx) ** 2 + (ay - by) ** 2;
+
+  function spawnZombie() {
+    if (zombies.length >= MAX_ZOMBIES) return;
+    // spawn on a random point just outside the visible rectangle, around the camera
+    const side = Math.floor(Math.random() * 4);
+    const hw = VIEW_W / 2 + SPAWN_MARGIN, hh = VIEW_H / 2 + SPAWN_MARGIN;
+    let x, y;
+    if (side === 0) { x = rand(-hw, hw); y = -hh; }
+    else if (side === 1) { x = rand(-hw, hw); y = hh; }
+    else if (side === 2) { x = -hw; y = rand(-hh, hh); }
+    else { x = hw; y = rand(-hh, hh); }
+    zombies.push({
+      x: camX + x, y: camY + y,
+      speed: rand(ZOMBIE_SPEED_MIN, ZOMBIE_SPEED_MAX) * (1 + Math.min(time / 180, 0.8)),
+      hp: ZOMBIE_HP, flash: 0, wob: Math.random() * 6.28,
+      kx: 0, ky: 0
+    });
+  }
+
+  function burst(x, y, color, n, spd) {
+    for (let i = 0; i < n; i++) {
+      const a = Math.random() * 6.28, s = rand(spd * 0.3, spd);
+      particles.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, life: rand(0.2, 0.5), max: 0.5, color });
+    }
+  }
+
+  function nearestZombie() {
+    let best = null, bd = Infinity;
+    for (const z of zombies) {
+      const d = dist2(z.x, z.y, tower.x, tower.y);
+      if (d < bd) { bd = d; best = z; }
+    }
+    return best;
+  }
+
+  function fireBow() {
+    const target = nearestZombie();
+    if (!target) { fireTimer = 0.1; return; }   // hold fire until something appears, then shoot promptly
+    const sx = tower.x, sy = tower.y - TOWER_H * 0.4;
+    const a = Math.atan2(target.y - sy, target.x - sx);
+    arrows.push({ x: sx, y: sy, vx: Math.cos(a) * ARROW_SPEED, vy: Math.sin(a) * ARROW_SPEED, a, life: ARROW_LIFE });
+    burst(sx + Math.cos(a) * 8, sy + Math.sin(a) * 8, '#f2e6b0', 4, 40);
+    shake = Math.max(shake, 1);
+    fireTimer = FIRE_INTERVAL;
+  }
+
+  // ---------- Update ----------
+  function update(dt) {
+    if (gameOver) return;
+    time += dt;
+
+    // Tower movement (WASD), smoothed for weight
+    let ix = (keys.KeyD ? 1 : 0) - (keys.KeyA ? 1 : 0);
+    let iy = (keys.KeyS ? 1 : 0) - (keys.KeyW ? 1 : 0);
+    const len = Math.hypot(ix, iy) || 1;
+    ix /= len; iy /= len;
+    const k = 1 - Math.exp(-TOWER_ACCEL * dt);
+    tower.vx += (ix * TOWER_SPEED - tower.vx) * k;
+    tower.vy += (iy * TOWER_SPEED - tower.vy) * k;
+    tower.x += tower.vx * dt; tower.y += tower.vy * dt;
+    const sp = Math.hypot(tower.vx, tower.vy);
+    tower.step += sp * dt * 0.18;
+    if (tower.vx > 2) tower.facing = 1; else if (tower.vx < -2) tower.facing = -1;
+    if (tower.hitFlash > 0) tower.hitFlash -= dt;
+
+    // Camera follows tower smoothly
+    const ck = 1 - Math.exp(-6 * dt);
+    camX += (tower.x - camX) * ck; camY += (tower.y - camY) * ck;
+
+    // Spawning: ramps up with time
+    const rate = 1.2 + time * 0.045;            // zombies per second
+    spawnTimer += dt * rate;
+    while (spawnTimer >= 1) { spawnTimer -= 1; spawnZombie(); }
+
+    // Auto-fire
+    fireTimer -= dt;
+    if (fireTimer <= 0) fireBow();
+
+    // Arrows
+    for (let i = arrows.length - 1; i >= 0; i--) {
+      const ar = arrows[i];
+      const nx = ar.x + ar.vx * dt, ny = ar.y + ar.vy * dt;
+      ar.life -= dt;
+      let hit = null;
+      for (const z of zombies) {
+        // check segment-ish: point at start/mid/end of travel
+        for (let t = 0; t <= 1; t += 0.5) {
+          const px = ar.x + (nx - ar.x) * t, py = ar.y + (ny - ar.y) * t;
+          if (Math.abs(px - z.x) < ZOMBIE_SIZE * 0.75 && Math.abs(py - z.y) < ZOMBIE_SIZE * 0.75) { hit = z; break; }
+        }
+        if (hit) break;
+      }
+      ar.x = nx; ar.y = ny;
+      if (hit) {
+        hit.hp -= ARROW_DAMAGE; hit.flash = 0.1;
+        hit.kx = ar.vx * 0.15; hit.ky = ar.vy * 0.15;   // knockback
+        burst(hit.x, hit.y, '#7bd35a', 5, 60);
+        arrows.splice(i, 1);
+        continue;
+      }
+      if (ar.life <= 0) arrows.splice(i, 1);
+    }
+
+    // Zombies
+    for (let i = zombies.length - 1; i >= 0; i--) {
+      const z = zombies[i];
+      if (z.hp <= 0) {
+        xpDrops.push({ x: z.x, y: z.y, bob: Math.random() * 6.28 });
+        burst(z.x, z.y, '#4f8a3a', 8, 70);
+        kills++; shake = Math.max(shake, 1.5);
+        zombies.splice(i, 1);
+        continue;
+      }
+      const dx = tower.x - z.x, dy = tower.y - z.y;
+      const d = Math.hypot(dx, dy) || 1;
+      z.wob += dt * 6;
+      z.x += (dx / d) * z.speed * dt + z.kx * dt * 8;
+      z.y += (dy / d) * z.speed * dt + z.ky * dt * 8;
+      z.kx *= 0.85; z.ky *= 0.85;
+      if (z.flash > 0) z.flash -= dt;
+
+      // soft separation so they don't stack into one pixel (cheap, checks a few neighbours)
+      for (let j = i - 1, c = 0; j >= 0 && c < 6; j--, c++) {
+        const o = zombies[j];
+        const ox = z.x - o.x, oy = z.y - o.y, od2 = ox * ox + oy * oy;
+        if (od2 < 36 && od2 > 0.01) {
+          const od = Math.sqrt(od2), push = (6 - od) * 0.5;
+          z.x += (ox / od) * push * dt * 20; z.y += (oy / od) * push * dt * 20;
+        }
+      }
+
+      // touch damage
+      if (Math.abs(z.x - tower.x) < TOWER_W / 2 + 2 && Math.abs(z.y - (tower.y - TOWER_H / 4)) < TOWER_H / 2) {
+        tower.hp -= 6 * dt;
+        tower.hitFlash = 0.1;
+        shake = Math.max(shake, 0.8);
+        if (tower.hp <= 0) { tower.hp = 0; gameOver = true; }
+      }
+    }
+
+    // XP pickups: stay on the ground; just animate the bob
+    for (const x of xpDrops) x.bob += dt * 3;
+
+    // Particles
+    for (let i = particles.length - 1; i >= 0; i--) {
+      const p = particles[i];
+      p.life -= dt; p.x += p.vx * dt; p.y += p.vy * dt; p.vx *= 0.92; p.vy *= 0.92;
+      if (p.life <= 0) particles.splice(i, 1);
+    }
+
+    shake *= Math.exp(-10 * dt);
+  }
+
+  // ---------- Render ----------
+  function rect(x, y, w, h, c) { ctx.fillStyle = c; ctx.fillRect(Math.round(x), Math.round(y), w, h); }
+
+  // deterministic ground tiles so the world has a sense of movement
+  function hash(x, y) { let h = x * 374761393 + y * 668265263; h = (h ^ (h >> 13)) * 1274126177; return ((h ^ (h >> 16)) >>> 0) / 4294967295; }
+
+  function drawGround(ox, oy) {
+    const T = 16;
+    const x0 = Math.floor((camX - VIEW_W / 2) / T) - 1, x1 = Math.floor((camX + VIEW_W / 2) / T) + 1;
+    const y0 = Math.floor((camY - VIEW_H / 2) / T) - 1, y1 = Math.floor((camY + VIEW_H / 2) / T) + 1;
+    for (let ty = y0; ty <= y1; ty++) {
+      for (let tx = x0; tx <= x1; tx++) {
+        const h = hash(tx, ty);
+        const sx = tx * T - camX + VIEW_W / 2 + ox, sy = ty * T - camY + VIEW_H / 2 + oy;
+        rect(sx, sy, T, T, (tx + ty) & 1 ? '#161b2b' : '#141828');
+        if (h > 0.86) rect(sx + (h * 97 % 10), sy + (h * 53 % 10), 2, 2, '#232b45');       // pebbles
+        else if (h < 0.06) { rect(sx + 4, sy + 6, 1, 3, '#1d3a2a'); rect(sx + 6, sy + 5, 1, 4, '#1d3a2a'); } // grass tufts
+      }
+    }
+  }
+
+  function worldToScreen(x, y, ox, oy) { return [x - camX + VIEW_W / 2 + ox, y - camY + VIEW_H / 2 + oy]; }
+
+  function render() {
+    const ox = (Math.random() - 0.5) * shake * 2, oy = (Math.random() - 0.5) * shake * 2;
+    rect(0, 0, VIEW_W, VIEW_H, '#0b0d17');
+    drawGround(ox, oy);
+
+    // XP pickups (blue gems with a little bob)
+    for (const d of xpDrops) {
+      const [sx, sy] = worldToScreen(d.x, d.y, ox, oy);
+      if (sx < -8 || sx > VIEW_W + 8 || sy < -8 || sy > VIEW_H + 8) continue;
+      const b = Math.sin(d.bob) > 0 ? 0 : 1;
+      rect(sx - 2, sy - 2 - b + 1, XP_SIZE, XP_SIZE, '#3fb6ff');
+      rect(sx - 1, sy - 2 - b + 1, 1, 1, '#d8f3ff');
+      rect(sx - 2, sy + 2 + 1, XP_SIZE, 1, '#0a1a2e'); // shadow
+    }
+
+    // Zombies (sorted-ish by y: draw in array order, good enough for prototype)
+    for (const z of zombies) {
+      const [sx, sy] = worldToScreen(z.x, z.y, ox, oy);
+      if (sx < -10 || sx > VIEW_W + 10 || sy < -10 || sy > VIEW_H + 10) continue;
+      const bob = Math.sin(z.wob) > 0 ? 1 : 0;
+      rect(sx - 3, sy + 4, 6, 1, '#07080f');                                  // shadow
+      rect(sx - 4, sy - 4 - bob, ZOMBIE_SIZE, ZOMBIE_SIZE, z.flash > 0 ? '#ffffff' : '#4f8a3a');
+      if (z.flash <= 0) { rect(sx - 2, sy - 2 - bob, 1, 1, '#ff3b3b'); rect(sx + 1, sy - 2 - bob, 1, 1, '#ff3b3b'); }
+    }
+
+    // Tower
+    {
+      const [sx, sy] = worldToScreen(tower.x, tower.y, ox, oy);
+      const moving = Math.hypot(tower.vx, tower.vy) > 3;
+      const sway = moving ? Math.sin(tower.step * 6.28) : 0;
+      const lift = moving ? Math.abs(Math.sin(tower.step * 6.28)) * 1.5 : 0;
+      rect(sx - 10, sy + 10, 20, 3, '#07080f');                               // shadow
+      // root-legs (two stubby legs alternating)
+      rect(sx - 7, sy + 7 - (sway > 0 ? lift : 0), 4, 5, '#4a3a2a');
+      rect(sx + 3, sy + 7 - (sway < 0 ? lift : 0), 4, 5, '#4a3a2a');
+      const bx = sx - TOWER_W / 2 + sway * 0.6, by = sy - TOWER_H / 2 - lift * 0.5;
+      const body = tower.hitFlash > 0 ? '#ffd0d0' : '#8a8f99';
+      const dark = tower.hitFlash > 0 ? '#e0a0a0' : '#6a6f79';
+      rect(bx, by, TOWER_W, TOWER_H - 4, body);                               // body
+      rect(bx + TOWER_W - 4, by, 4, TOWER_H - 4, dark);                       // shaded side
+      // battlements
+      for (let i = 0; i < 3; i++) rect(bx + i * 7 - (i === 0 ? 0 : 1), by - 4, 4, 4, body);
+      // brick lines
+      rect(bx, by + 8, TOWER_W, 1, dark); rect(bx, by + 15, TOWER_W, 1, dark);
+      // window + door
+      rect(bx + 7, by + 3, 4, 4, '#1b1f2a'); rect(bx + 8, by + 4, 2, 2, '#ffcf5a');
+      // little eyes so it feels alive
+      rect(bx + (tower.facing > 0 ? 11 : 4), by + 11, 2, 2, '#ffe9a0');
+    }
+
+    // Arrows
+    for (const a of arrows) {
+      const [sx, sy] = worldToScreen(a.x, a.y, ox, oy);
+      const dx = Math.cos(a.a), dy = Math.sin(a.a);
+      for (let i = 0; i < 4; i++) rect(sx - dx * i * 2, sy - dy * i * 2, 2, 2, i === 0 ? '#ffffff' : '#c9b27a');
+    }
+
+    // Particles
+    for (const p of particles) {
+      const [sx, sy] = worldToScreen(p.x, p.y, ox, oy);
+      ctx.globalAlpha = Math.max(0, p.life / p.max);
+      rect(sx, sy, 2, 2, p.color);
+    }
+    ctx.globalAlpha = 1;
+
+    // Night vignette
+    const g = ctx.createRadialGradient(VIEW_W / 2, VIEW_H / 2, 90, VIEW_W / 2, VIEW_H / 2, 270);
+    g.addColorStop(0, 'rgba(5,6,20,0)'); g.addColorStop(1, 'rgba(5,6,20,0.55)');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, VIEW_W, VIEW_H);
+
+    // HUD
+    rect(8, 8, 62, 6, '#000'); rect(9, 9, Math.round(60 * tower.hp / tower.maxHp), 4, '#d94a4a');
+    ctx.font = '8px monospace'; ctx.textBaseline = 'top';
+    ctx.fillStyle = '#cfd6ff';
+    ctx.fillText('KILLS ' + kills, 8, 18);
+    ctx.fillStyle = '#3fb6ff';
+    ctx.fillText('XP ON GROUND ' + xpDrops.length, 8, 28);
+    ctx.fillStyle = '#8a90b0';
+    const m = Math.floor(time / 60), s = Math.floor(time % 60);
+    ctx.fillText(m + ':' + String(s).padStart(2, '0'), VIEW_W - 30, 8);
+    ctx.fillText('WASD move  R restart', 8, VIEW_H - 14);
+
+    // bow cooldown pip
+    const cd = 1 - Math.max(0, fireTimer) / FIRE_INTERVAL;
+    rect(VIEW_W / 2 - 15, VIEW_H - 12, 30, 3, '#000'); rect(VIEW_W / 2 - 14, VIEW_H - 11, Math.round(28 * Math.min(1, cd)), 1, '#f2e6b0');
+
+    if (gameOver) {
+      ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(0, 0, VIEW_W, VIEW_H);
+      ctx.fillStyle = '#fff'; ctx.font = '16px monospace'; ctx.textAlign = 'center';
+      ctx.fillText('THE TOWER FALLS', VIEW_W / 2, VIEW_H / 2 - 20);
+      ctx.font = '8px monospace';
+      ctx.fillText('Kills ' + kills + '   Survived ' + m + ':' + String(s).padStart(2, '0'), VIEW_W / 2, VIEW_H / 2 + 2);
+      ctx.fillText('Press R to restart', VIEW_W / 2, VIEW_H / 2 + 16);
+      ctx.textAlign = 'left';
+    }
+  }
+
+  // ---------- Loop ----------
+  let last = performance.now();
+  function frame(now) {
+    const dt = Math.min(0.05, (now - last) / 1000);
+    last = now;
+    update(dt);
+    render();
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
