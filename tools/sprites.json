@@ -5,13 +5,13 @@
     "tower": {
       "file": "tower/tower.png",
       "size": [
-        40,
-        48
+        48,
+        56
       ],
       "colours": 24,
       "anchor": "bottom",
       "key": true,
-      "desc": "a squat grey stone watchtower with battlements on top, mossy brick courses, one small glowing yellow window, and two thick gnarled wooden root-legs at the base that it walks on; slightly alive and characterful; front view with a gentle top-down 3/4 RPG perspective"
+      "desc": "the body of a chunky, squat, powerful grey stone tower seen from the front with a gentle top-down 3/4 RPG perspective: very thick wide walls of big bold brick blocks, a wide crenellated top with chunky battlements, one BIG bright glowing yellow arched window in the middle, a few mossy patches, and several clearly visible flat empty stone platforms on the battlement top and on small ledges at both sides where weapons could be bolted on. NO legs and NO feet: the bottom edge is a flat straight stone base. It looks sturdy, heavy and a little bit alive"
     },
     "zombie": {
       "file": "enemies/zombie.png",
@@ -83,6 +83,138 @@
       "anchor": "bottom",
       "key": true,
       "desc": "a small lumpy grey boulder with a couple of cracks and a pale highlight on the top-left, sitting flat on the ground; front view with a gentle top-down 3/4 RPG perspective"
+    },
+    "leg": {
+      "file": "tower/leg.png",
+      "size": [
+        14,
+        22
+      ],
+      "anchor": "bottom",
+      "key": true,
+      "desc": "a single thick gnarled wooden tree-root leg of a giant walking tower, front view, wide knobbly root-foot at the bottom with small root toes, thick brown bark with lighter highlights, a flat top edge where it attaches to the stone body, chunky and strong",
+      "colours": 12
+    },
+    "w_ballista": {
+      "file": "weapons/ballista.png",
+      "size": [
+        16,
+        16
+      ],
+      "anchor": "bottom",
+      "key": true,
+      "desc": "a small chunky wooden ballista crossbow turret on a stone-grey mount, loaded with a big bolt, pointing right, side view",
+      "colours": 14
+    },
+    "w_cannon": {
+      "file": "weapons/cannon.png",
+      "size": [
+        16,
+        16
+      ],
+      "anchor": "bottom",
+      "key": true,
+      "desc": "a small chunky black iron fire cannon with glowing orange ember in the muzzle on a stone-grey mount, pointing right, side view",
+      "colours": 14
+    },
+    "w_coil": {
+      "file": "weapons/coil.png",
+      "size": [
+        16,
+        16
+      ],
+      "anchor": "bottom",
+      "key": true,
+      "desc": "a small chunky tesla lightning coil: copper wire wrapped pillar topped with a bright cyan electric orb with tiny sparks, on a stone-grey base",
+      "colours": 14
+    },
+    "w_frost": {
+      "file": "weapons/frost.png",
+      "size": [
+        16,
+        16
+      ],
+      "anchor": "bottom",
+      "key": true,
+      "desc": "a small chunky frost spire: a cluster of pale icy-blue crystals growing from a stone-grey base, bright white highlights",
+      "colours": 14
+    },
+    "w_catapult": {
+      "file": "weapons/catapult.png",
+      "size": [
+        16,
+        16
+      ],
+      "anchor": "bottom",
+      "key": true,
+      "desc": "a small chunky wooden catapult with a loaded round boulder in its spoon arm, on a stone-grey base, pointing right, side view",
+      "colours": 14
+    },
+    "w_orb": {
+      "file": "weapons/orb.png",
+      "size": [
+        16,
+        16
+      ],
+      "anchor": "bottom",
+      "key": true,
+      "desc": "a small chunky floating arcane orb: a swirling purple and magenta-free violet sphere hovering above a small stone-grey pedestal, with a bright white core",
+      "colours": 14
+    },
+    "p_fire": {
+      "file": "projectiles/fireball.png",
+      "size": [
+        10,
+        10
+      ],
+      "anchor": null,
+      "key": true,
+      "desc": "a round blazing fireball with a bright yellow core, orange body and red edge, tiny flame tail on the left",
+      "colours": 10
+    },
+    "p_bolt": {
+      "file": "projectiles/bolt.png",
+      "size": [
+        8,
+        16
+      ],
+      "anchor": null,
+      "key": true,
+      "desc": "a single vertical jagged lightning bolt, bright white core with cyan edge, zigzag shape",
+      "colours": 8
+    },
+    "p_shard": {
+      "file": "projectiles/iceshard.png",
+      "size": [
+        12,
+        6
+      ],
+      "anchor": null,
+      "key": true,
+      "desc": "a single sharp ice shard pointing exactly to the right, pale blue with white highlights",
+      "colours": 8
+    },
+    "p_rock": {
+      "file": "projectiles/boulder.png",
+      "size": [
+        10,
+        10
+      ],
+      "anchor": null,
+      "key": true,
+      "desc": "a round grey rough boulder rock with chunky cracks and a lighter top-left highlight",
+      "colours": 8
+    },
+    "p_orb": {
+      "file": "projectiles/arcaneorb.png",
+      "size": [
+        10,
+        10
+      ],
+      "anchor": null,
+      "key": true,
+      "desc": "a glowing violet arcane energy ball with a bright white centre and a soft darker violet rim",
+      "colours": 8
     }
   }
 }
