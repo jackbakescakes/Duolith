@@ -153,20 +153,20 @@
 
   // ---------- State ----------
   let phase, zoom, zoomTarget, dayLight, nightNo;
-  let dayTime, bed, dawnT, menu, menuOk = 0, menuDeny = 0, up;
+  let dusk, toWorkshop, walkT, dayTime, bed, dawnT, menu, menuOk = 0, menuDeny = 0, up;
   let tower, mage, zombies, shots, zaps, rings, weapons, xpDrops, particles, nodes, floaters, res;
   let orbAng, spawnTimer, time, kills, shake, gameOver;
   let camX, camY, camTx = 0, camTy = 0;      // camTx/camTy: last screen translation, for mouse and HUD maths
 
   function reset() {
     phase = 'day'; zoom = zoomTarget = DAY_ZOOM; dayLight = 1; nightNo = 1; dayTime = DAY_LENGTH;
-    bed = null; dawnT = 0; menu = false; dawnFlags = {};
+    bed = null; dawnT = 0; menu = false; dawnFlags = {}; dusk = false; toWorkshop = false; walkT = 0;
     up = { hp: 0, spd: 0, swing: 0, mspd: 0, magnet: 0, yield: 0 };
     tower = { x: 0, y: 0, vx: 0, vy: 0, hp: 100, maxHp: 100, hitFlash: 0, step: 0, facing: 1,
               amp: 0, sink: 1, thump: 0, bodyX: 0, bodyY: 0, dirx: 1, diry: 0, legS: [0, 0, 0, 0],
               bury: [1, 1, 1, 1], legPull: [0, 0, 0, 0], pose: { x: 0, y: 0 }, scratch: 0, scratchWob: 0, scripted: false,
               eye: { open: 0, look: 0, mouth: 0, blink: 0, nextBlink: 3 } };
-    mage = { x: 0, y: 0, vx: 0, vy: 0, aim: 0, flip: false, step: 0, swing: 0, swingCd: 0, swingDir: 0 };
+    mage = { x: 0, y: 0, vx: 0, vy: 0, aim: 0, flip: false, step: 0, swing: 0, swingCd: 0, swingDir: 0, z: 0 };
     zombies = []; shots = []; zaps = []; rings = []; xpDrops = []; particles = []; nodes = []; floaters = [];
     weapons = WEAPON_DEFS.map((d, i) => ({ ...d, owned: d.id === 'ballista', on: d.id === 'ballista', rapid: 0, heavy: 0, timer: 0.6 + i * 0.25, kick: 0, face: 1 }));
     orbAng = 0;
@@ -203,7 +203,7 @@
   // TEMPORARY test shortcut (N): skip ahead to the next phase.
   function togglePhase() {
     if (gameOver) return;
-    if (phase === 'day') goToBed(); else if (phase === 'night') startDawn(); else if (phase === 'bed') skipBed();
+    if (phase === 'day') { if (menu || dusk) goToBed(); else beginDusk(); } else if (phase === 'night') startDawn(); else if (phase === 'bed') skipBed();
   }
 
   // Each morning the smith wakes at a different spot around wherever the tower ended up, and the trees and rocks are
@@ -214,11 +214,18 @@
   }
 
   function startDay() {            // morning: the smith is up and the tower is rooted
-    phase = 'day'; zoomTarget = DAY_ZOOM; dayTime = DAY_LENGTH;
+    phase = 'day'; zoomTarget = DAY_ZOOM; dayTime = DAY_LENGTH; dusk = false; toWorkshop = false; mage.z = 0;
     tower.scripted = false; tower.vx = tower.vy = 0; tower.bury.fill(1); tower.legPull = [0, 0, 0, 0];
     tower.hp = tower.maxHp;
     mage.vx = mage.vy = 0; mage.swing = 0;
     nodes = []; topUpNodes();
+  }
+
+  // End of the day (timer, or N): the smith walks to the tower and the workshop opens for one last round of upgrades.
+  function beginDusk() {
+    if (phase !== 'day' || dusk) return;
+    dusk = true; toWorkshop = true; walkT = 0; menu = false;
+    floatText(mage.x, mage.y - 16, 'NIGHTFALL', '#ffd890');
   }
 
   // Bedtime: the mage walks to the foot of the tower and lies down; see updateBed for the wake-up.
@@ -238,13 +245,20 @@
   }
 
   function updateBed(dt) {
-    const bx = tower.x - 12, by = towerBaseY() + 10;                  // where the mage lies down
-    if (bed.t < 0) {                                                   // walk to the foot of the tower
-      const dx = bx - mage.x, dy = by - mage.y, d = Math.hypot(dx, dy);
-      if (d < 1.5) { bed.t = 0; mage.x = bx; mage.y = by; mage.vx = mage.vy = 0; tower.scripted = true; }
-      else {
-        mage.vx = dx / d * 52; mage.vy = dy / d * 52;
-        mage.x += mage.vx * dt; mage.y += mage.vy * dt; mage.flip = dx < 0; mage.step += 52 * dt * 0.35;
+    const bx = tower.x, by = towerBaseY() + 6;                         // the foot of the tower; he hops up and inside
+    if (bed.t < 0) {
+      if (bed.jump === undefined) {                                    // walk to the foot of the tower
+        const dx = bx - mage.x, dy = by - mage.y, d = Math.hypot(dx, dy);
+        if (d < 1.5) { bed.jump = 0; bed.jx = mage.x; mage.vx = mage.vy = 0; }
+        else {
+          mage.vx = dx / d * 52; mage.vy = dy / d * 52;
+          mage.x += mage.vx * dt; mage.y += mage.vy * dt; mage.flip = dx < 0; mage.step += 52 * dt * 0.35;
+        }
+      } else {                                                         // hop up into the tower
+        bed.jump += dt / 0.5;
+        const u = Math.min(1, bed.jump);
+        mage.x = bed.jx + (bx - bed.jx) * u; mage.y = by + (towerBaseY() - 8 - by) * u; mage.z = Math.sin(u * Math.PI) * 12;
+        if (u >= 1) { bed.t = 0; mage.z = 0; tower.scripted = true; burst(tower.x, towerBaseY() - 4, '#6b5a48', 6, 25); }
       }
       camX = mage.x; camY = mage.y - 6;
       updateGait(dt, true);
@@ -259,7 +273,7 @@
     camX = lerp(mage.x, tower.x, pz); camY = lerp(mage.y - 6, tower.y - 8, pz);
 
     bed.zzz -= dt;                                                     // sleepy Zs
-    if (t < 4.2 && bed.zzz <= 0) { bed.zzz = 0.7; floatText(mage.x + 3, mage.y - 9, 'z', '#cfd6ff'); }
+    if (t < 4.2 && bed.zzz <= 0) { bed.zzz = 0.7; { const o = bodyOrigin(); floatText(o.x + 37, o.y + 32, 'z', '#cfd6ff'); } }
 
     // 4.0 eyes open, 4.7 yawn, 5.9 stretch, 7.1 legs out, 9.7 look around, 10.6 scratch nose, 11.7 push off
     const open = easeIO(seg(t, 4.0, 4.7));
@@ -835,6 +849,12 @@
     let iy = (keys.KeyS ? 1 : 0) - (keys.KeyW ? 1 : 0);
     const len = Math.hypot(ix, iy) || 1;
     ix /= len; iy /= len;
+    if (toWorkshop) {                                              // dusk: walk to the front of the tower by himself
+      walkT += dt;
+      const tx = tower.x, ty = towerBaseY() + 26, dx = tx - mage.x, dy = ty - mage.y, d = Math.hypot(dx, dy);
+      if (d < 5 || walkT > 6) { toWorkshop = false; menu = true; mouse.down = false; ix = iy = 0; }
+      else { ix = dx / d; iy = dy / d; }
+    }
     const k = 1 - Math.exp(-MAGE_ACCEL * dt);
     mage.vx += (ix * mageSpeed() - mage.vx) * k;
     mage.vy += (iy * mageSpeed() - mage.vy) * k;
@@ -844,9 +864,10 @@
     pushOut(tower.x, towerBaseY() - 4, 24);
     updateGait(dt, true);
 
-    if (!menu) dayTime -= dt;
+    if (!menu && !toWorkshop && !dusk) dayTime -= dt;
     if (menu && !nearTower()) menu = false;
-    if (dayTime <= 0) { goToBed(); return; }
+    if (dayTime <= 0 && !dusk) beginDusk();
+    if (dusk && !menu && !toWorkshop) { goToBed(); return; }      // closed the workshop: off to bed
 
     // Always face the mouse
     mage.aim = Math.atan2(mouse.wy - (mage.y - 6), mouse.wx - mage.x);
@@ -855,7 +876,7 @@
     // Chop / mine: hold the mouse to keep swinging
     if (mage.swingCd > 0) mage.swingCd -= dt;
     if (mage.swing > 0) mage.swing -= dt;
-    if (mouse.down && !menu && mage.swingCd <= 0) {
+    if (mouse.down && !menu && !toWorkshop && mage.swingCd <= 0) {
       mage.swingCd = swingCd(); mage.swing = 0.18; mage.swingDir = mage.aim;
       const n = pickTarget();
       if (n) hitNode(n);
@@ -1117,7 +1138,7 @@
   function drawMage() {
     const moving = Math.hypot(mage.vx, mage.vy) > 3;
     const bob = moving ? Math.abs(Math.sin(mage.step * 6.28)) * 0.75 : 0;
-    const x = mage.x, y = mage.y;
+    const x = mage.x, y = mage.y - (mage.z || 0);
     const f = mage.flip ? -1 : 1;
     if (phase === 'bed' && bed.t >= 0) {                       // asleep on the ground at the foot of the tower
       const br = Math.sin(performance.now() / 600) > 0 ? 0 : 1;
@@ -1131,7 +1152,7 @@
       }
       return;
     }
-    shadow(x - 3, y - 1, 6, 1);
+    shadow(x - 3, mage.y - 1, 6, 1);
     if (sprites.mage) {
       drawSprite(sprites.mage, x, y - bob, 0.5, 1, mage.flip);
     } else {
@@ -1184,7 +1205,7 @@
     for (const n of nodes) if (onScreen(n.x, n.y, 24)) list.push([n.y, 0, n]);
     for (const z of zombies) if (onScreen(z.x, z.y, 12)) list.push([z.y + ZOMBIE_SIZE / 2, 1, z]);
     list.push([towerBaseY(), 2, tower]);
-    if (phase !== 'night') list.push([mage.y, 3, mage]);
+    if (phase !== 'night' && !(phase === 'bed' && bed.t >= 0)) list.push([mage.y, 3, mage]);
     list.sort((a, b) => a[0] - b[0]);
     for (const [, kind, o] of list) {
       if (kind === 0) drawNode(o); else if (kind === 1) drawZombie(o); else if (kind === 2) drawTower(); else drawMage();
@@ -1326,7 +1347,7 @@
       const frac = Math.max(0, dayTime / DAY_LENGTH);
       ctx.fillStyle = '#000'; ctx.fillRect(8, 18, 62, 6); ctx.fillStyle = frac < 0.2 ? '#ff9a5a' : '#ffcf5a'; ctx.fillRect(9, 19, Math.round(60 * frac), 4);
       label('XP ON GROUND ' + xpDrops.length, 8, 28, '#3fb6ff');
-      label('WASD walk  MOUSE aim  CLICK chop/mine  E / click tower: workshop  N sleep', 8, VIEW_H - 12, '#c8b890');
+      label(dusk && toWorkshop ? 'NIGHTFALL: HEADING TO THE TOWER...' : dusk ? 'LAST CHANCE TO UPGRADE: THEN SLEEP' : 'WASD walk  MOUSE aim  CLICK chop/mine  E / click tower: workshop  N sleep', 8, VIEW_H - 12, '#c8b890');
       if (!menu && nearTower()) {
         const [tx, ty] = toScreen(tower.x, tower.y - TOWER_H - 30);
         ctx.textAlign = 'center'; label('E: WORKSHOP', Math.round(tx), Math.round(Math.max(30, ty)), '#ffe9a0'); ctx.textAlign = 'left';
