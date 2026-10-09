@@ -65,6 +65,25 @@ Notes from the first run:
 2. Add the same key and path to `ASSET_FILES` in `index.html`, and draw it with `drawSprite()` plus a placeholder fallback.
 3. `python3 tools/check_assets.py` fails if the two disagree.
 
+## Tower, legs and weapons
+
+The tower is drawn in layers: four root-leg sprites (`tower/leg.png`, animated in code), the round body (`tower/tower.png`, 64x88),
+then weapon sprites on six mount points (`SLOTS` in `index.html`, in body-sprite pixels). Legs are one sprite moved by code
+(plant, slide back, lift, swing forward), with dust and a body thump on each footfall, so no walk-cycle frames are needed.
+
+| key | weapon | attack |
+|---|---|---|
+| 1 | ballista | arrow every 2 s |
+| 2 | cannon | slow fireball, area blast |
+| 3 | coil | instant lightning that chains to 2 more zombies |
+| 4 | frost | fan of 3 ice shards, slows |
+| 5 | catapult | lobbed boulder with a landing marker, big blast |
+| 6 | orbs | 3 arcane orbs orbit the tower |
+
+Keys 1-6 switch weapons on and off for testing; in the real game they are bought with resources by day.
+Projectile sprites came from one Gemini sheet that `art-src/` splits into five files; weapons are generated in a three-quarter
+top-down view so they all match the tower.
+
 ## Later: sprite atlas
 
 Once there are many sprites and animation frames, pack them into one image plus a small JSON of frame rects, and load that

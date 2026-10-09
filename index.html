@@ -24,8 +24,10 @@
   // Night: the tower
   const TOWER_SPEED = 38;                    // px/s, slow and heavy
   const TOWER_ACCEL = 5;                     // smoothing: higher = snappier
-  const TOWER_W = 28, TOWER_H = 40;          // hitbox; the tower sprite is 40x48, so the hitbox is a bit forgiving
-  const FIRE_INTERVAL = 2.0;                 // seconds between bow shots
+  const TOWER_W = 40, TOWER_H = 64;          // hitbox; the body sprite is 64x88 (plus legs), so the hitbox is forgiving
+  const BODY_W = 64, BODY_H = 88;            // body sprite size
+  const LEG_VIS = 11;                        // how much of each root-leg shows below the body
+  const FIRE_INTERVAL = 2.0;                 // seconds between ballista shots
   const ARROW_SPEED = 220;
   const ARROW_LIFE = 1.4;
   const ARROW_DAMAGE = 1;
@@ -46,7 +48,7 @@
   const XP_MAGNET = 12, XP_PICKUP = 4;       // XP drifts to the mage inside MAGNET and is collected inside PICKUP
   const TREE_HP = 3, ROCK_HP = 4;
   const TREES = 24, ROCKS = 16;              // resource nodes kept around the tower each dawn
-  const NODE_RING_MIN = 34, NODE_RING_MAX = 220;
+  const NODE_RING_MIN = 56, NODE_RING_MAX = 230;
   const COPPER_CHANCE = 0.18, IRON_CHANCE = 0.05;   // per rock broken
 
   const canvas = document.getElementById('c');
@@ -65,6 +67,18 @@
     xp:     'pickups/xp.png',
     arrow:  'projectiles/arrow.png',
     ground: 'tiles/ground.png',
+    leg:    'tower/leg.png',
+    w_ballista: 'weapons/ballista.png',
+    w_cannon:   'weapons/cannon.png',
+    w_coil:     'weapons/coil.png',
+    w_frost:    'weapons/frost.png',
+    w_catapult: 'weapons/catapult.png',
+    w_orb:      'weapons/orb.png',
+    p_fire:  'projectiles/fireball.png',
+    p_bolt:  'projectiles/bolt.png',
+    p_shard: 'projectiles/iceshard.png',
+    p_rock:  'projectiles/boulder.png',
+    p_orb:   'projectiles/arcaneorb.png',
     mage:   'mage/mage.png',
     tree:   'resources/tree.png',
     rock:   'resources/rock.png',
@@ -112,6 +126,10 @@
     if (e.code === 'KeyR') reset();
     if (e.code === 'KeyN' && !e.repeat) togglePhase();   // TEMPORARY: manual day/night switch for testing
     if (e.code === 'Space') e.preventDefault();
+    if (/^Digit[1-6]$/.test(e.code) && !e.repeat) {     // TEMPORARY: toggle weapons 1-6 to try them out
+      const w = weapons[+e.code.slice(5) - 1];
+      if (w) { w.on = !w.on; w.timer = Math.min(w.timer, 0.3); }
+    }
   });
   addEventListener('keyup', e => { keys[e.code] = false; });
   addEventListener('blur', () => { for (const k in keys) keys[k] = false; mouse.down = false; });
@@ -125,17 +143,20 @@
 
   // ---------- State ----------
   let phase, zoom, zoomTarget, dayLight, nightNo;
-  let tower, mage, zombies, arrows, xpDrops, particles, nodes, floaters, res;
-  let fireTimer, spawnTimer, time, kills, shake, gameOver;
+  let tower, mage, zombies, shots, zaps, rings, weapons, xpDrops, particles, nodes, floaters, res;
+  let orbAng, spawnTimer, time, kills, shake, gameOver;
   let camX, camY, camTx = 0, camTy = 0;      // camTx/camTy: last screen translation, for mouse and HUD maths
 
   function reset() {
     phase = 'night'; zoom = zoomTarget = NIGHT_ZOOM; dayLight = 0; nightNo = 1;
-    tower = { x: 0, y: 0, vx: 0, vy: 0, hp: 100, maxHp: 100, hitFlash: 0, step: 0, facing: 1 };
+    tower = { x: 0, y: 0, vx: 0, vy: 0, hp: 100, maxHp: 100, hitFlash: 0, step: 0, facing: 1,
+              amp: 0, sink: 0, thump: 0, bodyX: 0, bodyY: 0, dirx: 0, diry: 0, legS: [0, 0, 0, 0] };
     mage = { x: 0, y: 0, vx: 0, vy: 0, aim: 0, flip: false, step: 0, swing: 0, swingCd: 0, swingDir: 0 };
-    zombies = []; arrows = []; xpDrops = []; particles = []; nodes = []; floaters = [];
+    zombies = []; shots = []; zaps = []; rings = []; xpDrops = []; particles = []; nodes = []; floaters = [];
+    weapons = WEAPON_DEFS.map((d, i) => ({ ...d, on: d.id === 'ballista', timer: 0.6 + i * 0.25, kick: 0, face: 1 }));
+    orbAng = 0;
     res = { wood: 0, stone: 0, copper: 0, iron: 0, xp: 0 };
-    fireTimer = 0.6; spawnTimer = 0; time = 0; kills = 0; shake = 0; gameOver = false;
+    spawnTimer = 0; time = 0; kills = 0; shake = 0; gameOver = false;
     camX = 0; camY = 0;
     topUpNodes();
   }
@@ -164,15 +185,16 @@
   function startDay() {
     phase = 'day'; zoomTarget = DAY_ZOOM;
     for (const z of zombies) burst(z.x, z.y, '#6f6a80', 4, 30);   // the dead crumble away at dawn
-    zombies = []; arrows = [];
+    zombies = []; shots = []; zaps = []; rings = [];
     tower.vx = tower.vy = 0;                                        // tower roots where it stopped
-    mage.x = tower.x; mage.y = towerBaseY() + 12; mage.vx = mage.vy = 0;
+    mage.x = tower.x; mage.y = towerBaseY() + 16; mage.vx = mage.vy = 0;
     topUpNodes();
   }
 
   function startNight() {
     phase = 'night'; zoomTarget = NIGHT_ZOOM;
-    nightNo++; time = 0; spawnTimer = 0; fireTimer = 0.6;
+    nightNo++; time = 0; spawnTimer = 0;
+    weapons.forEach((w, i) => { w.timer = 0.6 + i * 0.25; });
     tower.hp = tower.maxHp;                                         // the tower wakes rested
     mage.swing = 0;
   }
@@ -211,28 +233,227 @@
       x: camX + x, y: camY + y,
       speed: rand(ZOMBIE_SPEED_MIN, ZOMBIE_SPEED_MAX) * (1 + Math.min(time / 180, 0.8)),
       hp: ZOMBIE_HP, flash: 0, wob: Math.random() * 6.28,
-      kx: 0, ky: 0, dir: 1
+      kx: 0, ky: 0, dir: 1, slow: 0, orbCd: 0
     });
   }
 
-  function nearestZombie() {
-    let best = null, bd = Infinity;
+  // ---------- Weapons ----------
+  // Six mounts on the tower. Each weapon sits on its own mount, fires on its own timer and attacks in its own way.
+  // Keys 1-6 toggle them for testing (TEMPORARY: in the real game they're bought with resources by day).
+  const WEAPON_DEFS = [
+    { id: 'ballista', flips: true, name: 'BALLISTA', slot: 0, interval: FIRE_INTERVAL, spr: 'w_ballista', color: '#f2e6b0' },
+    { id: 'cannon', flips: true,   name: 'CANNON',   slot: 1, interval: 3.2, spr: 'w_cannon',   color: '#ff9a3a' },
+    { id: 'coil',     name: 'COIL',     slot: 2, interval: 2.6, spr: 'w_coil',     color: '#6fe8ff' },
+    { id: 'frost',    name: 'FROST',    slot: 3, interval: 2.4, spr: 'w_frost',    color: '#bfe8ff' },
+    { id: 'catapult', flips: true, name: 'CATAPULT', slot: 4, interval: 4.2, spr: 'w_catapult', color: '#b8b8c8' },
+    { id: 'orb',      name: 'ORBS',     slot: 5, interval: 0,   spr: 'w_orb',      color: '#b070ff' },
+  ];
+  // Mount points: bottom-centre of each weapon, in body-sprite pixels from the body's top-left corner.
+  const SLOTS = [[19, 21], [32, 16], [45, 21], [9, 46], [55, 46], [32, 84]];
+  const SLOT_DRAW_ORDER = [1, 0, 2, 3, 4, 5];       // back of the roof first
+  const ORB_COUNT = 3, ORB_RX = 46, ORB_RY = 15, ORB_SPEED = 2.6;
+  const COIL_RANGE = 190, CHAIN_RANGE = 48;
+
+  // Top-left of the body sprite in world space, including this frame's bob and sway.
+  function bodyOrigin() {
+    return { x: tower.x - BODY_W / 2 + tower.bodyX, y: towerBaseY() - LEG_VIS - BODY_H + tower.bodyY };
+  }
+  function weaponBase(w) { const o = bodyOrigin(), s = SLOTS[w.slot]; return { x: o.x + s[0], y: o.y + s[1] }; }
+  function orbPos(i) {
+    const a = orbAng + i * 6.2832 / ORB_COUNT;
+    return { x: tower.x + tower.bodyX + Math.cos(a) * ORB_RX, y: towerBaseY() - LEG_VIS - 34 + tower.bodyY + Math.sin(a) * ORB_RY,
+             front: Math.sin(a) > 0 };
+  }
+
+  function nearestZombieTo(x, y, maxD = Infinity, skip = null) {
+    let best = null, bd = maxD * maxD;
     for (const z of zombies) {
-      const d = dist2(z.x, z.y, tower.x, tower.y);
+      if (skip && skip.includes(z)) continue;
+      const d = dist2(z.x, z.y, x, y);
       if (d < bd) { bd = d; best = z; }
     }
     return best;
   }
 
-  function fireBow() {
-    const target = nearestZombie();
-    if (!target) { fireTimer = 0.1; return; }   // hold fire until something appears, then shoot promptly
-    const sx = tower.x, sy = tower.y - TOWER_H * 0.4;
-    const a = Math.atan2(target.y - sy, target.x - sx);
-    arrows.push({ x: sx, y: sy, vx: Math.cos(a) * ARROW_SPEED, vy: Math.sin(a) * ARROW_SPEED, a, life: ARROW_LIFE });
-    burst(sx + Math.cos(a) * 8, sy + Math.sin(a) * 8, '#f2e6b0', 4, 40);
-    shake = Math.max(shake, 1);
-    fireTimer = FIRE_INTERVAL;
+  function hurtZombie(z, dmg, kx, ky, color) {
+    z.hp -= dmg; z.flash = 0.1; z.kx = kx; z.ky = ky;
+    burst(z.x, z.y, color, 5, 60);
+  }
+
+  // Area damage with a shock ring; full damage in the inner half, one less at the edge.
+  function splash(x, y, r, dmg, color) {
+    for (const z of zombies) {
+      const d = Math.hypot(z.x - x, z.y - y);
+      if (d >= r) continue;
+      const k = 1 - d / r, a = Math.atan2(z.y - y, z.x - x);
+      hurtZombie(z, d < r * 0.5 ? dmg : Math.max(1, dmg - 1), Math.cos(a) * 60 * (0.4 + k), Math.sin(a) * 60 * (0.4 + k), color);
+    }
+    rings.push({ x, y, max: r, life: 0.3, t: 0.3, color });
+  }
+
+  // A jagged lightning path between two points (stable per bolt so it doesn't flicker randomly).
+  function jag(ax, ay, bx, by) {
+    const pts = [[ax, ay]], n = 6;
+    for (let i = 1; i < n; i++) {
+      const t = i / n;
+      pts.push([ax + (bx - ax) * t + rand(-5, 5), ay + (by - ay) * t + rand(-5, 5)]);
+    }
+    pts.push([bx, by]);
+    return pts;
+  }
+
+  function fireWeapon(w) {
+    const b = weaponBase(w), mx = b.x, my = b.y - 9;
+    const t = nearestZombieTo(mx, my, w.id === 'coil' ? COIL_RANGE : Infinity);
+    if (!t) { w.timer = 0.12; return; }              // hold fire until something is in range, then shoot promptly
+    w.timer = w.interval; w.face = t.x < mx ? -1 : 1; w.kick = 1;
+    const a = Math.atan2(t.y - my, t.x - mx);
+    const ca = Math.cos(a), sa = Math.sin(a);
+
+    if (w.id === 'ballista') {
+      shots.push({ kind: 'arrow', x: mx, y: my, vx: ca * ARROW_SPEED, vy: sa * ARROW_SPEED, a, life: ARROW_LIFE });
+      burst(mx + ca * 8, my + sa * 8, '#f2e6b0', 4, 40);
+      shake = Math.max(shake, 1);
+    } else if (w.id === 'cannon') {
+      shots.push({ kind: 'fire', x: mx + ca * 8, y: my + sa * 8, vx: ca * 135, vy: sa * 135, a, life: 2.4 });
+      burst(mx + ca * 10, my + sa * 10, '#ffb04a', 9, 70);
+      burst(mx + ca * 10, my + sa * 10, '#555a66', 5, 35);   // smoke
+      shake = Math.max(shake, 2);
+    } else if (w.id === 'coil') {
+      // lightning strikes the nearest zombie, then jumps to up to two more nearby
+      const chain = [t];
+      for (let i = 0; i < 2; i++) {
+        const last = chain[chain.length - 1], nx = nearestZombieTo(last.x, last.y, CHAIN_RANGE, chain);
+        if (!nx) break; chain.push(nx);
+      }
+      let px = mx, py = my;
+      const path = [], hits = [];
+      for (const z of chain) {
+        path.push(jag(px, py, z.x, z.y - 6)); hits.push([z.x, z.y]);
+        hurtZombie(z, 2, 0, 0, '#9cf3ff');
+        px = z.x; py = z.y - 6;
+      }
+      zaps.push({ path, hits, life: 0.22, max: 0.22 });
+      burst(mx, my, '#6fe8ff', 6, 50);
+      shake = Math.max(shake, 1.2);
+    } else if (w.id === 'frost') {
+      for (const off of [-0.22, 0, 0.22]) {
+        const aa = a + off;
+        shots.push({ kind: 'shard', x: mx, y: my, vx: Math.cos(aa) * 190, vy: Math.sin(aa) * 190, a: aa, life: 1.3 });
+      }
+      burst(mx + ca * 6, my + sa * 6, '#d8f3ff', 5, 45);
+    } else if (w.id === 'catapult') {
+      // lobbed boulder: lands where the target is heading, splashes on impact
+      const T = 0.95, z = t, d = Math.hypot(tower.x - z.x, tower.y - z.y) || 1;
+      const lead = Math.min(d, z.speed * T);
+      const tx = z.x + (tower.x - z.x) / d * lead, ty = z.y + (tower.y - z.y) / d * lead;
+      shots.push({ kind: 'rock', sx: mx, sy: my, tx, ty, t: 0, T, x: mx, y: my });
+      burst(mx, my - 2, '#9a8a6a', 5, 35);
+      shake = Math.max(shake, 1.2);
+    }
+  }
+
+  function updateWeapons(dt) {
+    for (const w of weapons) {
+      w.kick *= Math.exp(-12 * dt);
+      if (!w.on || w.interval <= 0) continue;
+      w.timer -= dt;
+      if (w.timer <= 0) fireWeapon(w);
+    }
+
+    // Orbiting arcane orbs: constant contact damage in a ring around the tower
+    if (weapons[5].on) {
+      orbAng += dt * ORB_SPEED;
+      for (let i = 0; i < ORB_COUNT; i++) {
+        const o = orbPos(i);
+        for (const z of zombies) {
+          if (z.orbCd > 0 || Math.abs(z.x - o.x) > 9 || Math.abs(z.y - o.y) > 9) continue;
+          const a = Math.atan2(z.y - tower.y, z.x - tower.x);
+          hurtZombie(z, 1, Math.cos(a) * 45, Math.sin(a) * 45, '#c490ff');
+          z.orbCd = 0.35;
+        }
+      }
+    }
+
+    // Projectiles
+    for (let i = shots.length - 1; i >= 0; i--) {
+      const s = shots[i];
+      if (s.kind === 'rock') {
+        s.t += dt;
+        const u = Math.min(1, s.t / s.T);
+        s.x = s.sx + (s.tx - s.sx) * u; s.y = s.sy + (s.ty - s.sy) * u;
+        s.h = Math.sin(u * Math.PI) * 70;
+        if (u >= 1) {
+          splash(s.tx, s.ty, 26, 4, '#b8b8c8');
+          burst(s.tx, s.ty, '#8a7a5a', 14, 70);
+          shake = Math.max(shake, 3.2);
+          shots.splice(i, 1);
+        }
+        continue;
+      }
+      const nx = s.x + s.vx * dt, ny = s.y + s.vy * dt;
+      s.life -= dt;
+      const reach = s.kind === 'arrow' ? ZOMBIE_SIZE * 0.75 : s.kind === 'fire' ? 9 : 8;
+      let hit = null;
+      for (const z of zombies) {
+        for (let k = 0; k <= 1; k += 0.5) {         // check start, middle and end of this frame's travel
+          const px = s.x + (nx - s.x) * k, py = s.y + (ny - s.y) * k;
+          if (Math.abs(px - z.x) < reach && Math.abs(py - z.y) < reach) { hit = z; break; }
+        }
+        if (hit) break;
+      }
+      s.x = nx; s.y = ny;
+      if (s.kind === 'fire' && Math.random() < 0.7) particles.push({ x: s.x - s.vx * 0.03, y: s.y - s.vy * 0.03, vx: rand(-8, 8), vy: rand(-8, 8), life: 0.3, max: 0.3, color: Math.random() < 0.5 ? '#ff9a3a' : '#ffd84a' });
+      if (hit) {
+        if (s.kind === 'arrow') { hurtZombie(hit, ARROW_DAMAGE, s.vx * 0.15, s.vy * 0.15, '#7bd35a'); }
+        else if (s.kind === 'fire') { splash(s.x, s.y, 24, 3, '#ff9a3a'); burst(s.x, s.y, '#ffd84a', 10, 80); shake = Math.max(shake, 2.5); }
+        else if (s.kind === 'shard') { hurtZombie(hit, 1, s.vx * 0.12, s.vy * 0.12, '#bfe8ff'); hit.slow = 2.2; }
+        shots.splice(i, 1);
+        continue;
+      }
+      if (s.life <= 0) shots.splice(i, 1);
+    }
+
+    for (let i = zaps.length - 1; i >= 0; i--) { zaps[i].life -= dt; if (zaps[i].life <= 0) zaps.splice(i, 1); }
+    for (let i = rings.length - 1; i >= 0; i--) { rings[i].t -= dt; if (rings[i].t <= 0) rings.splice(i, 1); }
+  }
+
+  // ---------- Walking ----------
+  // Four root-legs in two diagonal pairs. Each leg plants, slides back under the body, lifts and swings forward.
+  // Every footfall kicks up dust and thumps the body down, so the tower feels heavy.
+  const LEGS = [               // foot offsets from the tower's base centre; back legs first so they draw behind
+    { x: -22, y: -5, ph: 0.5 }, { x: 22, y: -5, ph: 0 },
+    { x: -11, y: 0,  ph: 0 },   { x: 11,  y: 0,  ph: 0.5 },
+  ];
+  const STRIDE_LEN = 56, STANCE = 0.55, LEG_LIFT = 7;
+
+  function legPose(i) {
+    const L = LEGS[i], s = (tower.step + L.ph) % 1, amp = tower.amp;
+    let f, lift = 0;
+    if (s < STANCE) f = 0.5 - s / STANCE;                        // planted: foot slides from front to back
+    else { const u = (s - STANCE) / (1 - STANCE); f = -0.5 + u; lift = Math.sin(u * Math.PI) * LEG_LIFT * amp; }
+    return { x: tower.x + L.x + tower.dirx * f * 11 * amp, y: towerBaseY() + L.y + tower.diry * f * 5 * amp, lift };
+  }
+
+  function updateGait(dt, rooted) {
+    const sp = rooted ? 0 : Math.hypot(tower.vx, tower.vy);
+    tower.amp += (Math.min(1, sp / 18) - tower.amp) * (1 - Math.exp(-8 * dt));
+    tower.step += sp * dt / STRIDE_LEN;
+    if (sp > 1) { tower.dirx = tower.vx / sp; tower.diry = tower.vy / sp; }
+    tower.sink += ((rooted ? 1 : 0) - tower.sink) * (1 - Math.exp(-4 * dt));
+    for (let i = 0; i < 4; i++) {
+      const s = (tower.step + LEGS[i].ph) % 1;
+      if (tower.legS[i] > 0.8 && s < 0.2 && tower.amp > 0.35) {    // this leg just came down
+        const p = legPose(i);
+        burst(p.x, p.y, '#6b5a48', 4, 26);
+        tower.thump = 1; shake = Math.max(shake, 0.9);
+      }
+      tower.legS[i] = s;
+    }
+    tower.thump *= Math.exp(-9 * dt);
+    const breathe = Math.sin(performance.now() / 550) * 0.6 * (1 - tower.amp);
+    tower.bodyY = Math.cos(tower.step * 4 * Math.PI) * 1.4 * tower.amp + tower.thump * 1.6 + breathe + tower.sink * 4;
+    tower.bodyX = tower.dirx * tower.amp * 1.5 + Math.sin(tower.step * 6.2832) * 1.2 * tower.amp;
   }
 
   function updateNight(dt) {
@@ -247,8 +468,7 @@
     tower.vx += (ix * TOWER_SPEED - tower.vx) * k;
     tower.vy += (iy * TOWER_SPEED - tower.vy) * k;
     tower.x += tower.vx * dt; tower.y += tower.vy * dt;
-    const sp = Math.hypot(tower.vx, tower.vy);
-    tower.step += sp * dt * 0.18;
+    updateGait(dt, false);
     if (tower.vx > 2) tower.facing = 1; else if (tower.vx < -2) tower.facing = -1;
     if (tower.hitFlash > 0) tower.hitFlash -= dt;
 
@@ -259,34 +479,7 @@
       while (spawnTimer >= 1) { spawnTimer -= 1; spawnZombie(); }
     }
 
-    // Auto-fire
-    fireTimer -= dt;
-    if (fireTimer <= 0) fireBow();
-
-    // Arrows
-    for (let i = arrows.length - 1; i >= 0; i--) {
-      const ar = arrows[i];
-      const nx = ar.x + ar.vx * dt, ny = ar.y + ar.vy * dt;
-      ar.life -= dt;
-      let hit = null;
-      for (const z of zombies) {
-        // check segment-ish: point at start/mid/end of travel
-        for (let t = 0; t <= 1; t += 0.5) {
-          const px = ar.x + (nx - ar.x) * t, py = ar.y + (ny - ar.y) * t;
-          if (Math.abs(px - z.x) < ZOMBIE_SIZE * 0.75 && Math.abs(py - z.y) < ZOMBIE_SIZE * 0.75) { hit = z; break; }
-        }
-        if (hit) break;
-      }
-      ar.x = nx; ar.y = ny;
-      if (hit) {
-        hit.hp -= ARROW_DAMAGE; hit.flash = 0.1;
-        hit.kx = ar.vx * 0.15; hit.ky = ar.vy * 0.15;   // knockback
-        burst(hit.x, hit.y, '#7bd35a', 5, 60);
-        arrows.splice(i, 1);
-        continue;
-      }
-      if (ar.life <= 0) arrows.splice(i, 1);
-    }
+    updateWeapons(dt);
 
     // Zombies
     for (let i = zombies.length - 1; i >= 0; i--) {
@@ -302,8 +495,11 @@
       const d = Math.hypot(dx, dy) || 1;
       z.wob += dt * 6;
       if (Math.abs(dx) > 1) z.dir = dx < 0 ? -1 : 1;
-      z.x += (dx / d) * z.speed * dt + z.kx * dt * 8;
-      z.y += (dy / d) * z.speed * dt + z.ky * dt * 8;
+      let spd = z.speed;
+      if (z.slow > 0) { z.slow -= dt; spd *= 0.45; if (Math.random() < dt * 6) particles.push({ x: z.x + rand(-4, 4), y: z.y + rand(-6, 4), vx: 0, vy: -6, life: 0.4, max: 0.4, color: '#bfe8ff' }); }
+      if (z.orbCd > 0) z.orbCd -= dt;
+      z.x += (dx / d) * spd * dt + z.kx * dt * 8;
+      z.y += (dy / d) * spd * dt + z.ky * dt * 8;
       z.kx *= 0.85; z.ky *= 0.85;
       if (z.flash > 0) z.flash -= dt;
 
@@ -386,7 +582,8 @@
     mage.x += mage.vx * dt; mage.y += mage.vy * dt;
     mage.step += Math.hypot(mage.vx, mage.vy) * dt * 0.35;
     for (const n of nodes) pushOut(n.x, n.y, n.r);
-    pushOut(tower.x, towerBaseY() - 3, 11);
+    pushOut(tower.x, towerBaseY() - 4, 24);
+    updateGait(dt, true);
 
     // Always face the mouse
     mage.aim = Math.atan2(mouse.wy - (mage.y - 6), mouse.wx - mage.x);
@@ -510,9 +707,26 @@
     const lift = moving ? Math.abs(Math.sin(tower.step * 6.28)) * 1.5 : 0;
     const sink = rooted ? 2 : 0;               // by day the root-legs are dug into the ground
     if (sprites.tower) {
-      const img = tower.hitFlash > 0 && flashes.tower ? flashes.tower : sprites.tower;
-      shadow(sx - 16, sy + TOWER_H / 2 - 3, 32, 4);
-      drawSprite(img, sx + sway * 0.6, sy + TOWER_H / 2 - lift + sink, 0.5, 1);
+      const footY = towerBaseY();
+      shadow(sx - 22, footY - 4, 44, 2); shadow(sx - 28, footY - 2, 56, 2); shadow(sx - 22, footY, 44, 2);   // soft oval
+      drawOrbs(false);                                         // orbs on the far side of the tower
+      for (let i = 0; i < 4; i++) {                            // root-legs, back pair first
+        const p = legPose(i), y = p.y + tower.sink * 7 - p.lift;
+        if (!sprites.leg) { rect(p.x - 4, y - 10, 8, 10, '#4a3a2a'); continue; }
+        if (tower.sink > 0.02) { ctx.save(); ctx.beginPath(); ctx.rect(p.x - 20, p.y - 80, 40, 81); ctx.clip(); }   // buried by day
+        drawSprite(sprites.leg, p.x, y, 0.5, 1);
+        if (tower.sink > 0.02) ctx.restore();
+      }
+      const o = bodyOrigin();
+      ctx.drawImage(tower.hitFlash > 0 && flashes.tower ? flashes.tower : sprites.tower, snap(o.x), snap(o.y));
+      for (const si of SLOT_DRAW_ORDER) {                      // weapons on their mounts
+        const w = weapons[si];
+        if (!w.on) continue;
+        const b = weaponBase(w), kx = -w.face * w.kick * 2.5, img = sprites[w.spr];
+        if (img) drawSprite(img, b.x + kx, b.y, 0.5, 1, w.flips && w.face < 0);
+        else rect(b.x - 5 + kx, b.y - 8, 10, 8, w.color);
+      }
+      drawOrbs(true);                                          // orbs on the near side
     } else {
       rect(sx - 10, sy + 10, 20, 3, '#07080f');                               // shadow
       // root-legs (two stubby legs alternating)
@@ -530,9 +744,32 @@
       if (!rooted) rect(bx + (tower.facing > 0 ? 11 : 4), by + 11, 2, 2, '#ffe9a0');         // eyes: closed by day
     }
     if (rooted) {   // churned soil where the roots go in
-      rect(sx - 13, sy + TOWER_H / 2 - 1, 26, 2, '#3a2c20');
-      rect(sx - 9, sy + TOWER_H / 2 + 1, 4, 1, '#3a2c20'); rect(sx + 5, sy + TOWER_H / 2 + 1, 5, 1, '#3a2c20');
+      const fy = sy + TOWER_H / 2;
+      rect(sx - 30, fy - 1, 60, 2, '#3a2c20');
+      rect(sx - 26, fy + 1, 12, 1, '#3a2c20'); rect(sx + 12, fy + 1, 14, 1, '#3a2c20'); rect(sx - 8, fy + 1, 16, 1, '#2e231a');
     }
+  }
+
+  function drawOrbs(front) {
+    if (!weapons[5].on) return;
+    for (let i = 0; i < ORB_COUNT; i++) {
+      const o = orbPos(i);
+      if (o.front !== front) continue;
+      if (sprites.p_orb) drawSprite(sprites.p_orb, o.x, o.y, 0.5, 0.5); else rect(o.x - 3, o.y - 3, 6, 6, '#b070ff');
+    }
+  }
+
+  // A ring of little squares (shock waves, landing markers)
+  function ringDots(x, y, r, color, alpha, n) {
+    ctx.globalAlpha = alpha;
+    for (let k = 0; k < n; k++) { const a = k / n * 6.2832; rect(x + Math.cos(a) * r - 1, y + Math.sin(a) * r * 0.8 - 1, 2, 2, color); }
+    ctx.globalAlpha = 1;
+  }
+
+  function boltLine(ax, ay, bx, by) {
+    const n = Math.max(1, Math.ceil(Math.hypot(bx - ax, by - ay) / 1.5));
+    for (let i = 0; i <= n; i++) { const t = i / n, x = ax + (bx - ax) * t, y = ay + (by - ay) * t; rect(x - 1, y - 1, 2, 2, '#6fe8ff'); }
+    for (let i = 0; i <= n; i++) { const t = i / n, x = ax + (bx - ax) * t, y = ay + (by - ay) * t; rect(x - 0.5, y - 0.5, 1, 1, '#ffffff'); }
   }
 
   function drawNode(n) {
@@ -633,19 +870,38 @@
       if (kind === 0) drawNode(o); else if (kind === 1) drawZombie(o); else if (kind === 2) drawTower(); else drawMage();
     }
 
-    // Arrows
-    for (const a of arrows) {
-      if (sprites.arrow) {
-        const im = sprites.arrow;      // authored pointing right (+x)
+    // Projectiles
+    for (const sh of shots) {
+      if (sh.kind === 'rock') {   // landing marker, ground shadow, and the boulder up on its arc
+        ringDots(sh.tx, sh.ty, 22 + (Math.sin(performance.now() / 90) > 0 ? 1 : 0), '#ffd080', 0.6, 16);
+        const sc = 1 - sh.h / 140;
+        shadow(sh.x - 4 * sc, sh.y, 8 * sc, 2);
+        if (sprites.p_rock) drawSprite(sprites.p_rock, sh.x, sh.y - sh.h, 0.5, 0.5); else rect(sh.x - 4, sh.y - sh.h - 4, 8, 8, '#8a8a96');
+        continue;
+      }
+      const im = sh.kind === 'fire' ? sprites.p_fire : sh.kind === 'shard' ? sprites.p_shard : sprites.arrow;   // all authored pointing right
+      if (im) {
         ctx.save();
-        ctx.translate(snap(a.x), snap(a.y)); ctx.rotate(a.a);
+        ctx.translate(snap(sh.x), snap(sh.y)); ctx.rotate(sh.a);
         ctx.drawImage(im, -Math.round(im.width / 2), -Math.round(im.height / 2));
         ctx.restore();
       } else {
-        const dx = Math.cos(a.a), dy = Math.sin(a.a);
-        for (let i = 0; i < 4; i++) rect(a.x - dx * i * 2, a.y - dy * i * 2, 2, 2, i === 0 ? '#ffffff' : '#c9b27a');
+        const dx = Math.cos(sh.a), dy = Math.sin(sh.a);
+        for (let i = 0; i < 4; i++) rect(sh.x - dx * i * 2, sh.y - dy * i * 2, 2, 2, i === 0 ? '#ffffff' : '#c9b27a');
       }
     }
+
+    // Lightning and shock rings
+    for (const zp of zaps) {
+      ctx.globalAlpha = Math.min(1, zp.life / zp.max * 1.6);
+      for (const seg of zp.path) for (let i = 0; i < seg.length - 1; i++) boltLine(seg[i][0], seg[i][1], seg[i + 1][0], seg[i + 1][1]);
+      for (const h of zp.hits) {
+        if (sprites.p_bolt) drawSprite(sprites.p_bolt, h[0], h[1] + 2, 0.5, 1);
+        rect(h[0] - 5, h[1] - 1, 10, 3, '#bff6ff');
+      }
+      ctx.globalAlpha = 1;
+    }
+    for (const rg of rings) ringDots(rg.x, rg.y, rg.max * (1 - rg.t / rg.life), rg.color, rg.t / rg.life, 22);
 
     // Particles (smaller in world units when zoomed in, so they stay chunky-but-small on screen)
     const ps = Z >= 2 ? 1 : 2;
@@ -719,11 +975,21 @@
       label('XP ON GROUND ' + xpDrops.length, 8, 28, '#3fb6ff');
       const m = Math.floor(time / 60), s = Math.floor(time % 60);
       label(m + ':' + String(s).padStart(2, '0'), VIEW_W - 30, 8, '#8a90b0');
-      label('WASD steer tower   N dawn   R restart', 8, VIEW_H - 12, '#8a90b0');
-      // bow cooldown pip
-      const cd = 1 - Math.max(0, fireTimer) / FIRE_INTERVAL;
-      ctx.fillStyle = '#000'; ctx.fillRect(VIEW_W / 2 - 15, VIEW_H - 36, 30, 3);
-      ctx.fillStyle = '#f2e6b0'; ctx.fillRect(VIEW_W / 2 - 14, VIEW_H - 35, Math.round(28 * Math.min(1, cd)), 1);
+      label('WASD steer tower   1-6 toggle weapons   N dawn   R restart', 8, VIEW_H - 12, '#8a90b0');
+      // weapon bar: one cell per mount, dimmed when switched off, with a cooldown bar
+      const cw = 26, x0 = Math.round(VIEW_W / 2 - cw * 3), y0 = VIEW_H - 54;
+      weapons.forEach((w, i) => {
+        const x = x0 + i * cw;
+        ctx.fillStyle = 'rgba(0,0,0,0.45)'; ctx.fillRect(x, y0 - 2, cw - 2, 26);
+        ctx.globalAlpha = w.on ? 1 : 0.28;
+        const img = sprites[w.spr];
+        if (img) ctx.drawImage(img, x + 1, y0 - 1); else { ctx.fillStyle = w.color; ctx.fillRect(x + 6, y0 + 4, 10, 10); }
+        ctx.globalAlpha = 1;
+        const cd = w.interval > 0 ? 1 - Math.max(0, w.timer) / w.interval : 1;
+        ctx.fillStyle = '#000'; ctx.fillRect(x, y0 + 20, cw - 2, 3);
+        if (w.on) { ctx.fillStyle = w.color; ctx.fillRect(x + 1, y0 + 21, Math.round((cw - 4) * Math.min(1, cd)), 1); }
+        label(String(i + 1), x + 2, y0 - 2, w.on ? '#ffffff' : '#6a708a');
+      });
     } else {
       label('DAY ' + nightNo, 8, 8, '#ffe9a0');
       label('XP ON GROUND ' + xpDrops.length, 8, 18, '#3fb6ff');
@@ -745,7 +1011,7 @@
   // ---------- Loop ----------
   reset();
   // test hook: lets an automated check read game state; harmless for players
-  window.__duolith = { get: () => ({ phase, zoom, res, xp: xpDrops.length, nodes: nodes.length, nodeList: nodes, xpList: xpDrops, mage, tower, zombies: zombies.length, gameOver, camTx, camTy }),
+  window.__duolith = { get: () => ({ weapons, shots: shots.length, phase, zoom, res, xp: xpDrops.length, nodes: nodes.length, nodeList: nodes, xpList: xpDrops, mage, tower, zombies: zombies.length, gameOver, camTx, camTy }),
                        setXpDrops: a => { xpDrops = a; } };
   let last = performance.now();
   function frame(now) {

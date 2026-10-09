@@ -11,7 +11,8 @@
       "colours": 32,
       "anchor": "bottom",
       "key": true,
-      "desc": "the body of a tall, chunky, powerful ROUND stone tower: a perfectly cylindrical, smoothly curved circular tower (clearly round, NOT square, NOT octagonal, NOT hexagonal, no flat straight faces) built from rings of big bold curved brick blocks, slightly wider at the base and tapering a little toward the top, with a wide round crenellated top rim with chunky battlements, a wide flat round roof deck inside the battlements, one BIG bright glowing yellow arched window in the middle, a few mossy patches, and a ring of stone ledge corbels so that several flat empty stone platforms are clearly visible on the roof deck and on two small balconies jutting out at both sides where weapons could be bolted on. NO legs and NO feet: the bottom edge is a flat stone base. It looks sturdy, heavy, tall and a little bit alive"
+      "desc": "the body of a tall, chunky, powerful ROUND stone tower: a perfectly cylindrical, smoothly curved circular tower (clearly round, NOT square, NOT octagonal, NOT hexagonal, no flat straight faces) built from rings of big bold curved brick blocks, slightly wider at the base and tapering a little toward the top, with a wide round crenellated top rim with chunky battlements, a wide flat round roof deck inside the battlements, one BIG bright glowing yellow arched window in the middle, a few mossy patches, and a ring of stone ledge corbels so that several flat empty stone platforms are clearly visible on the roof deck and on two small balconies jutting out at both sides where weapons could be bolted on. NO legs and NO feet: the bottom edge is a flat stone base. It looks sturdy, heavy, tall and a little bit alive",
+      "saturate": 1.6
     },
     "zombie": {
       "file": "enemies/zombie.png",
@@ -103,8 +104,9 @@
       ],
       "anchor": "bottom",
       "key": true,
-      "desc": "a small chunky wooden ballista crossbow turret on a stone-grey mount, loaded with a big bolt, pointing right, side view",
-      "colours": 14
+      "desc": "a small chunky wooden ballista crossbow turret on a stone-grey mount, loaded with a big bolt pointing right, seen from a three-quarter top-down RPG angle (camera looking down from above and slightly in front, so the top surface and front are both visible)",
+      "colours": 14,
+      "brighten": 1.4
     },
     "w_cannon": {
       "file": "weapons/cannon.png",
@@ -114,8 +116,9 @@
       ],
       "anchor": "bottom",
       "key": true,
-      "desc": "a small chunky black iron fire cannon with glowing orange ember in the muzzle on a stone-grey mount, pointing right, side view",
-      "colours": 14
+      "desc": "a small chunky black iron fire cannon with glowing orange ember in the muzzle on a stone-grey mount pointing right, seen from a three-quarter top-down RPG angle (camera looking down from above and slightly in front, so the top surface and front are both visible)",
+      "colours": 14,
+      "brighten": 1.25
     },
     "w_coil": {
       "file": "weapons/coil.png",
@@ -125,7 +128,7 @@
       ],
       "anchor": "bottom",
       "key": true,
-      "desc": "a small chunky tesla lightning coil: copper wire wrapped pillar topped with a bright cyan electric orb with tiny sparks, on a stone-grey base",
+      "desc": "a small chunky tesla lightning coil: copper wire wrapped pillar topped with a bright cyan electric orb with tiny sparks, on a stone-grey base, seen from a three-quarter top-down RPG angle (camera looking down from above and slightly in front, so the top surface and front are both visible)",
       "colours": 14
     },
     "w_frost": {
@@ -136,7 +139,7 @@
       ],
       "anchor": "bottom",
       "key": true,
-      "desc": "a small chunky frost spire: a cluster of pale icy-blue crystals growing from a stone-grey base, bright white highlights",
+      "desc": "a small chunky frost spire: a cluster of pale icy-blue crystals growing from a stone-grey base, bright white highlights, seen from a three-quarter top-down RPG angle (camera looking down from above and slightly in front, so the top surface and front are both visible)",
       "colours": 14
     },
     "w_catapult": {
@@ -147,8 +150,9 @@
       ],
       "anchor": "bottom",
       "key": true,
-      "desc": "a small chunky wooden catapult with a loaded round boulder in its spoon arm, on a stone-grey base, pointing right, side view",
-      "colours": 14
+      "desc": "a small chunky wooden catapult with a loaded round boulder in its spoon arm, on a stone-grey base pointing right, seen from a three-quarter top-down RPG angle (camera looking down from above and slightly in front, so the top surface and front are both visible)",
+      "colours": 14,
+      "brighten": 1.35
     },
     "w_orb": {
       "file": "weapons/orb.png",
@@ -158,7 +162,7 @@
       ],
       "anchor": "bottom",
       "key": true,
-      "desc": "a small chunky floating arcane orb: a swirling purple and magenta-free violet sphere hovering above a small stone-grey pedestal, with a bright white core",
+      "desc": "a small chunky floating arcane orb: a swirling purple and magenta-free violet sphere hovering above a small stone-grey pedestal, with a bright white core, seen from a three-quarter top-down RPG angle (camera looking down from above and slightly in front, so the top surface and front are both visible)",
       "colours": 14
     },
     "p_fire": {

@@ -17,13 +17,16 @@ reduce to a small palette -> pad to exactly the target size -> save an optimised
 --colours N     palette size (default: the sprite's "colours" in sprites.json, else max_colours, else 16; 0 = keep all)
 --resample      box (default, cleanest), nearest (crispest, can be noisy), lanczos (softest)
 --anchor        where the subject sits if it doesn't fill the target: bottom | center
+--saturate X    multiply colour saturation after shrinking (e.g. 1.4); bright accents like a lit window get washed out by
+                the shrink. Also spec key "saturate".
+--brighten X    multiply brightness after shrinking (e.g. 1.25) for sprites that come out too dark. Spec key "brighten".
 --tile          treat as a seamless tile: no keying, no cropping, straight resize to the exact size
 """
 import argparse, json, sys
 from collections import deque
 from pathlib import Path
 
-from PIL import Image
+from PIL import Image, ImageEnhance
 
 
 def pixels(img):
@@ -90,6 +93,13 @@ def remove_background(img, key, tol):
                     if 0 <= nx < w and 0 <= ny < h and px[nx, ny][3] == 0:
                         px[x, y] = (0, 0, 0, 0)
                         break
+    # Enclosed gaps (e.g. inside a bow) are not reachable from the border, so also clear any pixel that is
+    # clearly key-coloured anywhere. Safe because prompts forbid magenta on the subject.
+    for y in range(h):
+        for x in range(w):
+            r, g, b, a = px[x, y]
+            if a and (abs(r - key[0]) + abs(g - key[1]) + abs(b - key[2])) / 3 <= tol * 0.6:
+                px[x, y] = (0, 0, 0, 0)
     return img
 
 
@@ -123,6 +133,8 @@ def main():
     ap.add_argument("--resample", choices=RESAMPLE, default="box")
     ap.add_argument("--anchor", choices=["bottom", "center"])
     ap.add_argument("--tile", action="store_true")
+    ap.add_argument("--saturate", type=float)
+    ap.add_argument("--brighten", type=float)
     ap.add_argument("--alpha-threshold", type=int, default=110)
     a = ap.parse_args()
 
@@ -180,6 +192,17 @@ def main():
         small = rgb.resize((nw, nh), RESAMPLE[a.resample]).convert("RGBA")
         small_a = alpha.resize((nw, nh), RESAMPLE[a.resample]).point(lambda v: 255 if v >= a.alpha_threshold else 0)
         small.putalpha(small_a)
+        sat = a.saturate if a.saturate is not None else spec.get("saturate")
+        bri = a.brighten if a.brighten is not None else spec.get("brighten")
+        if sat or bri:
+            sa = small.getchannel("A")
+            t = small.convert("RGB")
+            if sat:
+                t = ImageEnhance.Color(t).enhance(sat)
+            if bri:
+                t = ImageEnhance.Brightness(t).enhance(bri)
+            small = t.convert("RGBA")
+            small.putalpha(sa)
         small = quantise(small, colours)
         out = Image.new("RGBA", (tw, th), (0, 0, 0, 0))
         ox = (tw - nw) // 2
