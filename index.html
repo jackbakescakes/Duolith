@@ -24,8 +24,8 @@
   // Night: the tower
   const TOWER_SPEED = 38;                    // px/s, slow and heavy
   const TOWER_ACCEL = 5;                     // smoothing: higher = snappier
-  const TOWER_W = 40, TOWER_H = 64;          // hitbox; the body sprite is 64x88 (plus legs), so the hitbox is forgiving
-  const BODY_W = 64, BODY_H = 88;            // body sprite size
+  const TOWER_W = 40, TOWER_H = 56;          // hitbox; the body sprite is 64x88 (plus legs), so the hitbox is forgiving
+  const BODY_W = 64, BODY_H = 72;            // body sprite size
   const LEG_VIS = 16;                        // how much of each root-leg shows below the body
   const FIRE_INTERVAL = 2.0;                 // seconds between ballista shots
   const ARROW_SPEED = 220;
@@ -495,7 +495,7 @@
     { id: 'orb',      name: 'ORBS',     slot: 5, interval: 0,   spr: 'w_orb',      color: '#b070ff' },
   ];
   // Mount points: bottom-centre of each weapon, in body-sprite pixels from the body's top-left corner.
-  const SLOTS = [[19, 21], [32, 16], [45, 21], [9, 46], [55, 46], [32, 84]];
+  const SLOTS = [[19, 21], [32, 16], [45, 21], [9, 46], [55, 46], [32, 68]];
   const SLOT_DRAW_ORDER = [1, 0, 2, 3, 4, 5];       // back of the roof first
   const ORB_COUNT = 3, ORB_RX = 46, ORB_RY = 15, ORB_SPEED = 2.6;
   const COIL_RANGE = 190, CHAIN_RANGE = 48;
@@ -507,7 +507,7 @@
   function weaponBase(w) { const o = bodyOrigin(), s = SLOTS[w.slot]; return { x: o.x + s[0], y: o.y + s[1] }; }
   function orbPos(i) {
     const a = orbAng + i * 6.2832 / orbCount();
-    return { x: tower.x + tower.bodyX + Math.cos(a) * ORB_RX, y: towerBaseY() - LEG_VIS - 34 + tower.bodyY + Math.sin(a) * ORB_RY,
+    return { x: tower.x + tower.bodyX + Math.cos(a) * ORB_RX, y: towerBaseY() - LEG_VIS - 30 + tower.bodyY + Math.sin(a) * ORB_RY,
              front: Math.sin(a) > 0 };
   }
 
@@ -1041,8 +1041,8 @@
 
   // One root-leg comes up to scratch the tower's nose (cutscene only).
   function drawScratchArm(o) {
-    const px = o.x + 54, py = o.y + 62, s = easeIO(tower.scratch);
-    const nx = o.x + 34 + Math.sin(tower.scratchWob) * 2.2 * s, ny = o.y + 48;
+    const px = o.x + 54, py = o.y + 50, s = easeIO(tower.scratch);
+    const nx = o.x + 34 + Math.sin(tower.scratchWob) * 2.2 * s, ny = o.y + 47;
     const rest = 0, aim = Math.atan2(ny - py, nx - px) - Math.PI / 2 + Math.PI * 2;
     const r = rest + (aim - Math.PI * 2 - rest) * s;
     ctx.save(); ctx.translate(snap(px), snap(py)); ctx.rotate(r);

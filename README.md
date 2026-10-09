@@ -116,4 +116,5 @@ Day (90 s): chop trees and mine rocks, collect the XP the tower dropped, press *
 Wood/stone/copper buy new weapons and tower upgrades (HP, speed); each weapon has a RAPID track (faster, weaker) and a HEAVY track (slower, harder). XP upgrades the mage (swing speed, move speed, XP magnet, lucky hands).
 **Sleep** (button, **N**, or the day timer running out) plays the wake-up cutscene: the mage lies down, the camera pulls up and out, the tower opens its eyes, yawns, stretches, pulls its roots out one by one, scratches its nose, and walks.
 Night (70 s): steer the tower with WASD; weapons fire on their own. At dawn the zombies crumble, the tower plants its roots and nods off, and the XP stays on the ground for the next morning.
+The tower sprite is the Gemini art with 16 rows of plain wall cropped out (64x72) to keep it squat.
 Keys: E workshop, 1-6 weapons on/off (owned ones), N skip ahead (sleep / dawn / cutscene), Space skip cutscene, R restart.
