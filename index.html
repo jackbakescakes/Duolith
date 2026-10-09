@@ -40,7 +40,7 @@
 
   // Day: the mage (world units; at DAY_ZOOM each world pixel is 4 screen pixels)
   const MAGE_SPEED = 46;
-  const MAGE_ACCEL = 14;
+  const MAGE_ACCEL = 18;
   const MAGE_R = 3;                          // body radius for bumping into trees, rocks and the tower
   const REACH = 14;                          // how far from the mage a tree or rock can be hit
   const CLICK_SLOP = 10;                     // how far the click can be from a tree or rock and still pick it
@@ -843,7 +843,7 @@
 
     // Always face the mouse
     mage.aim = Math.atan2(mouse.wy - (mage.y - 6), mouse.wx - mage.x);
-    mage.flip = mouse.wx < mage.x;
+    if (mouse.wx < mage.x - 2) mage.flip = true; else if (mouse.wx > mage.x + 2) mage.flip = false;
 
     // Chop / mine: hold the mouse to keep swinging
     if (mage.swingCd > 0) mage.swingCd -= dt;
@@ -896,7 +896,7 @@
     if (phase !== 'bed') {
       const onTower = phase === 'night' || (phase === 'dawn' && dawnT < 2.2);
       const fx = onTower ? tower.x : mage.x, fy = onTower ? tower.y : mage.y - 6;
-      const ck = 1 - Math.exp(-6 * dt);
+      const ck = 1 - Math.exp(-(phase === 'day' ? 22 : 6) * dt);
       camX += (fx - camX) * ck; camY += (fy - camY) * ck;
     }
 
@@ -1109,7 +1109,7 @@
 
   function drawMage() {
     const moving = Math.hypot(mage.vx, mage.vy) > 3;
-    const bob = moving && Math.sin(mage.step * 6.28) > 0 ? 1 : 0;
+    const bob = moving ? Math.abs(Math.sin(mage.step * 6.28)) * 0.75 : 0;
     const x = mage.x, y = mage.y;
     const f = mage.flip ? -1 : 1;
     if (phase === 'bed' && bed.t >= 0) {                       // asleep on the ground at the foot of the tower
