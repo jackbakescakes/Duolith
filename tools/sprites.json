@@ -55,15 +55,15 @@
       "tile": true,
       "desc": "a seamless tileable top-down ground tile of dark blue-grey night soil with a few tiny pebbles and one or two sparse dark-green grass tufts"
     },
-    "mage": {
-      "file": "mage/mage.png",
+    "smith": {
+      "file": "smith/smith.png",
       "size": [
         12,
         16
       ],
       "anchor": "bottom",
       "key": true,
-      "desc": "a tiny wizard in a purple robe and a tall pointy purple hat with a slightly bent tip, small round face, little boots, no staff in hand (the staff is drawn separately in code); front view with a gentle top-down 3/4 RPG perspective, facing right"
+      "desc": "a tiny stocky blacksmith: bald head with a big brown beard, rust-red shirt with rolled sleeves, a dark leather apron, heavy boots, no tool in hand (the hammer is drawn separately in code); front view with a gentle top-down 3/4 RPG perspective, facing right"
     },
     "tree": {
       "file": "resources/tree.png",

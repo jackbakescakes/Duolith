@@ -1,11 +1,11 @@
 # Duolith
 
-A mage and a living stone tower, each levelling the other. Prototype of the full day/night loop in plain HTML + canvas, to prove it's fun before a likely Godot rebuild.
+A blacksmith and a living stone tower, each levelling the other. Prototype of the full day/night loop in plain HTML + canvas, to prove it's fun before a likely Godot rebuild.
 
 Right now there are two phases, switched by hand with **N** (temporary, for testing):
 
 - **Night** (zoomed out): steer the slowly-walking tower with WASD, zombies swarm in from every side, the tower auto-fires an arrow every 2 seconds at the nearest one, and dead zombies leave XP gems on the ground. Each night starts a bit busier, and the tower wakes at full health.
-- **Day** (camera zooms in 4x on the mage): the tower roots where it stopped. Walk with WASD; the mage always faces the mouse. Click (or hold) near a tree to chop wood, or near a rock to mine stone, with an 18% chance of copper and a 5% chance of iron per rock. Walk over the night's XP gems to collect them; a blue marker at the screen edge points to the nearest one off screen. Trees and rocks are topped up around the tower each dawn.
+- **Day** (camera zooms in 3x on the smith): the tower roots where it stopped. Walk with WASD; the smith always faces the mouse. Click (or hold) near a tree to chop wood, or near a rock to mine stone, with an 18% chance of copper and a 5% chance of iron per rock. Walk over the night's XP gems to collect them; a blue marker at the screen edge points to the nearest one off screen. Each dawn the smith wakes at a random spot around wherever the tower ended up, and fresh trees and rocks are laid out there (hook for biomes later). The XP gems stay where they dropped.
 
 A resource counter (wood, stone, copper, iron, XP) sits at the bottom of the screen. Nothing spends resources yet.
 
@@ -14,7 +14,7 @@ A resource counter (wood, stone, copper, iron, XP) sits at the bottom of the scr
 ```
 index.html          game logic only. No images, no base64.
 assets/             all art, as image files loaded by URL at runtime
-  tower/ mage/ enemies/ resources/ pickups/ projectiles/ tiles/ ui/
+  tower/ smith/ enemies/ resources/ pickups/ projectiles/ tiles/ ui/
 art-src/            raw Gemini downloads (git-ignored; ~0.5 MB each)
 tools/
   sprites.json      single source of truth: every sprite's file, pixel size, palette, anchor, description
@@ -113,8 +113,8 @@ so the per-sprite files stay the editable truth. Not needed yet (all current spr
 ## The loop
 
 Day (90 s): chop trees and mine rocks, collect the XP the tower dropped, press **E** (or click the tower) near it to open the **workshop**.
-Wood/stone/copper buy new weapons and tower upgrades (HP, speed); each weapon has a RAPID track (faster, weaker) and a HEAVY track (slower, harder). XP upgrades the mage (swing speed, move speed, XP magnet, lucky hands).
-**Sleep** (button, **N**, or the day timer running out) plays the wake-up cutscene: the mage lies down, the camera pulls up and out, the tower opens its eyes, yawns, stretches, pulls its roots out one by one, scratches its nose, and walks.
+Wood/stone/copper buy new weapons and tower upgrades (HP, speed); each weapon has a RAPID track (faster, weaker) and a HEAVY track (slower, harder). XP upgrades the smith (swing speed, move speed, XP magnet, lucky hands).
+**Sleep** (button, **N**, or the day timer running out) plays the wake-up cutscene: the smith lies down, the camera pulls up and out, the tower opens its eyes, yawns, stretches, pulls its roots out one by one, scratches its nose, and walks.
 Night (70 s): steer the tower with WASD; weapons fire on their own. At dawn the zombies crumble, the tower plants its roots and nods off, and the XP stays on the ground for the next morning.
 The tower sprite is the Gemini art with 16 rows of plain wall cropped out (64x72) to keep it squat.
 Keys: E workshop, 1-6 weapons on/off (owned ones), N skip ahead (sleep / dawn / cutscene), Space skip cutscene, R restart.
