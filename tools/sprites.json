@@ -58,32 +58,35 @@
     "smith": {
       "file": "smith/smith.png",
       "size": [
-        12,
-        16
+        78,
+        26
       ],
       "anchor": "bottom",
       "key": true,
-      "desc": "a tiny stocky blacksmith: bald head with a big brown beard, rust-red shirt with rolled sleeves, a dark leather apron, heavy boots, no tool in hand (the hammer is drawn separately in code); front view with a gentle top-down 3/4 RPG perspective, facing right"
+      "colours": 24,
+      "desc": "strip of 3 frames (idle, walk A, walk B), each 26x26: a stocky bald bearded blacksmith, rust-red shirt, brown leather apron, dark boots, empty hands, facing right. Built by hand from one Gemini sheet (art-src/sheet_smith.jpg) with the split script, not by downscale.py"
     },
     "tree": {
       "file": "resources/tree.png",
       "size": [
-        16,
-        20
+        26,
+        30
       ],
       "anchor": "bottom",
       "key": true,
-      "desc": "a small round leafy forest tree with a short brown trunk and a bushy dark-green canopy with a few lighter leaf highlights; front view with a gentle top-down 3/4 RPG perspective"
+      "colours": 20,
+      "desc": "a round leafy dark-green tree with a short brown trunk, three-quarter top-down RPG angle"
     },
     "rock": {
       "file": "resources/rock.png",
       "size": [
-        12,
-        8
+        14,
+        11
       ],
       "anchor": "bottom",
       "key": true,
-      "desc": "a small lumpy grey boulder with a couple of cracks and a pale highlight on the top-left, sitting flat on the ground; front view with a gentle top-down 3/4 RPG perspective"
+      "colours": 16,
+      "desc": "a plain grey stone boulder, three-quarter top-down RPG angle"
     },
     "leg": {
       "file": "tower/leg.png",
@@ -219,6 +222,94 @@
       "key": true,
       "desc": "a glowing violet arcane energy ball with a bright white centre and a soft darker violet rim",
       "colours": 8
+    },
+    "ore_copper": {
+      "file": "resources/ore_copper.png",
+      "size": [
+        14,
+        11
+      ],
+      "anchor": "bottom",
+      "key": true,
+      "colours": 16,
+      "desc": "a grey boulder with chunky bright orange copper ore patches and a few green verdigris spots"
+    },
+    "ore_iron": {
+      "file": "resources/ore_iron.png",
+      "size": [
+        14,
+        11
+      ],
+      "anchor": "bottom",
+      "key": true,
+      "colours": 16,
+      "desc": "a dark slate boulder with pale silver-blue iron streaks and glints"
+    },
+    "crystal_node": {
+      "file": "resources/crystal_node.png",
+      "size": [
+        14,
+        14
+      ],
+      "anchor": "bottom",
+      "key": true,
+      "colours": 16,
+      "desc": "a small dark rock with a cluster of glowing cyan crystal shards growing out of it"
+    },
+    "ic_wood": {
+      "file": "pickups/ic_wood.png",
+      "size": [
+        10,
+        10
+      ],
+      "anchor": "center",
+      "key": true,
+      "colours": 12,
+      "desc": "a short brown wood log showing a lighter round cut end"
+    },
+    "ic_stone": {
+      "file": "pickups/ic_stone.png",
+      "size": [
+        10,
+        10
+      ],
+      "anchor": "center",
+      "key": true,
+      "colours": 12,
+      "desc": "a grey stone chunk"
+    },
+    "ic_copper": {
+      "file": "pickups/ic_copper.png",
+      "size": [
+        10,
+        10
+      ],
+      "anchor": "center",
+      "key": true,
+      "colours": 12,
+      "desc": "a bright orange copper nugget"
+    },
+    "ic_iron": {
+      "file": "pickups/ic_iron.png",
+      "size": [
+        10,
+        10
+      ],
+      "anchor": "center",
+      "key": true,
+      "colours": 12,
+      "desc": "a pale silver-blue iron ingot bar"
+    },
+    "ic_crystal": {
+      "file": "pickups/ic_crystal.png",
+      "size": [
+        10,
+        10
+      ],
+      "anchor": "center",
+      "key": true,
+      "colours": 12,
+      "desc": "a glowing cyan crystal shard"
     }
   }
 }

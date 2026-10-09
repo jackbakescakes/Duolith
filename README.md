@@ -118,3 +118,9 @@ Wood/stone/copper buy new weapons and tower upgrades (HP, speed); each weapon ha
 Night (70 s): steer the tower with WASD; weapons fire on their own. At dawn the zombies crumble, the tower plants its roots and nods off, and the XP stays on the ground for the next morning.
 The tower sprite is the Gemini art with 16 rows of plain wall cropped out (64x72) to keep it squat.
 Keys: E workshop, 1-6 weapons on/off (owned ones), N skip ahead (sleep / dawn / cutscene), Space skip cutscene, R restart.
+
+## Resources, loot and upgrades
+Nodes: trees (wood), rocks (stone), copper veins, iron veins (farther out) and crystal clusters (rarest, farthest). Breaking one pops loot that lands, then flies to the smith. Hits have a few frames of hit-stop, crits (HEAVY HAMMER), and rare finds shake the screen.
+Workshop: weapons cost mixes of wood/stone/copper/iron/crystal; tier 3 of each weapon track needs iron and crystal. Tower: HP, speed, armor (iron), regen (crystal). Smith (XP): swing, speed, magnet, lucky hands, long reach, heavy hammer.
+Sleep shows a "day complete" card with what you gathered. Day/night banners and a "tower walked N m" line mark each morning.
+Art: nodes, icons and the blacksmith came from three Gemini sprite sheets (`art-src/sheet_*.jpg`), split by connected components. The smith strip is built with the split script (3 frames of 26x26).

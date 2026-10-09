@@ -49,6 +49,15 @@
   const TREE_HP = 3, ROCK_HP = 4;
   const TREES = 24, ROCKS = 16;              // resource nodes kept around the tower each dawn
   const NODE_RING_MIN = 56, NODE_RING_MAX = 230;
+  // Resource nodes. drops: [resource, min, max]. 'from' is how far from the tower they start to appear.
+  const NODE_TYPES = {
+    tree:    { hp: 3, r: 3, spr: 'tree',         want: 22, from: 56,  cy: 10, h: 28, chip: '#8a5a32', drops: [['wood', 2, 3]] },
+    rock:    { hp: 4, r: 4, spr: 'rock',         want: 12, from: 56,  cy: 4,  h: 11, chip: '#9aa0aa', drops: [['stone', 2, 3]] },
+    copper:  { hp: 5, r: 4, spr: 'ore_copper',   want: 5,  from: 80,  cy: 4,  h: 11, chip: '#e08a4a', drops: [['copper', 2, 3], ['stone', 0, 1]] },
+    iron:    { hp: 7, r: 4, spr: 'ore_iron',     want: 3,  from: 110, cy: 4,  h: 11, chip: '#b8d0ff', drops: [['iron', 1, 2], ['stone', 1, 1]], rare: 'IRON!' },
+    crystal: { hp: 8, r: 4, spr: 'crystal_node', want: 2,  from: 140, cy: 6,  h: 14, chip: '#6fe8ff', drops: [['crystal', 1, 2]], rare: 'CRYSTAL!' },
+  };
+  const RES_COLOR = { wood: '#d9a066', stone: '#c4c9d4', copper: '#e08a4a', iron: '#b8d0ff', crystal: '#6fe8ff', xp: '#3fb6ff' };
   const COPPER_CHANCE = 0.18, IRON_CHANCE = 0.05;   // per rock broken
   const DAY_LENGTH = 90, NIGHT_LENGTH = 70;          // seconds
 
@@ -80,7 +89,10 @@
     p_shard: 'projectiles/iceshard.png',
     p_rock:  'projectiles/boulder.png',
     p_orb:   'projectiles/arcaneorb.png',
-    mage:   'smith/smith.png',
+    smith:  'smith/smith.png',          // strip of 3 frames, 26x26 each: idle, walk A, walk B
+    ore_copper: 'resources/ore_copper.png', ore_iron: 'resources/ore_iron.png', crystal_node: 'resources/crystal_node.png',
+    ic_wood: 'pickups/ic_wood.png', ic_stone: 'pickups/ic_stone.png', ic_copper: 'pickups/ic_copper.png',
+    ic_iron: 'pickups/ic_iron.png', ic_crystal: 'pickups/ic_crystal.png',
     tree:   'resources/tree.png',
     rock:   'resources/rock.png',
   };
@@ -111,6 +123,7 @@
         if (key === 'tower') flashes.tower = tint(img, '#ffd0d0');
         if (key === 'tree') flashes.tree = tint(img, '#fff4d0');
         if (key === 'rock') flashes.rock = tint(img, '#ffffff');
+        if (key === 'ore_copper' || key === 'ore_iron' || key === 'crystal_node') flashes[key] = tint(img, '#ffffff');
         settle();
       };
       img.onerror = () => { missing.push(ASSET_FILES[key]); settle(); };
@@ -153,7 +166,7 @@
 
   // ---------- State ----------
   let phase, zoom, zoomTarget, dayLight, nightNo;
-  let dusk, toWorkshop, walkT, dayTime, bed, dawnT, menu, menuOk = 0, menuDeny = 0, up;
+  let loot, hudBump, dayGain, banner, hitstop = 0, lastDayPos, dusk, toWorkshop, walkT, dayTime, bed, dawnT, menu, menuOk = 0, menuDeny = 0, up;
   let tower, mage, zombies, shots, zaps, rings, weapons, xpDrops, particles, nodes, floaters, res;
   let orbAng, spawnTimer, time, kills, shake, gameOver;
   let camX, camY, camTx = 0, camTy = 0;      // camTx/camTy: last screen translation, for mouse and HUD maths
@@ -161,7 +174,9 @@
   function reset() {
     phase = 'day'; zoom = zoomTarget = DAY_ZOOM; dayLight = 1; nightNo = 1; dayTime = DAY_LENGTH;
     bed = null; dawnT = 0; menu = false; dawnFlags = {}; dusk = false; toWorkshop = false; walkT = 0;
-    up = { hp: 0, spd: 0, swing: 0, mspd: 0, magnet: 0, yield: 0 };
+    up = { hp: 0, spd: 0, armor: 0, regen: 0, swing: 0, mspd: 0, magnet: 0, yield: 0, reach: 0, power: 0 };
+    loot = []; hudBump = {}; dayGain = { wood: 0, stone: 0, copper: 0, iron: 0, crystal: 0, xp: 0 }; lastDayPos = { x: 0, y: 0 };
+    banner = { text: 'DAY 1', sub: 'GATHER, UPGRADE, THEN SLEEP', t: 0, dur: 3 };
     tower = { x: 0, y: 0, vx: 0, vy: 0, hp: 100, maxHp: 100, hitFlash: 0, step: 0, facing: 1,
               amp: 0, sink: 1, thump: 0, bodyX: 0, bodyY: 0, dirx: 1, diry: 0, legS: [0, 0, 0, 0],
               bury: [1, 1, 1, 1], legPull: [0, 0, 0, 0], pose: { x: 0, y: 0 }, scratch: 0, scratchWob: 0, scripted: false,
@@ -170,7 +185,7 @@
     zombies = []; shots = []; zaps = []; rings = []; xpDrops = []; particles = []; nodes = []; floaters = [];
     weapons = WEAPON_DEFS.map((d, i) => ({ ...d, owned: d.id === 'ballista', on: d.id === 'ballista', rapid: 0, heavy: 0, timer: 0.6 + i * 0.25, kick: 0, face: 1 }));
     orbAng = 0;
-    res = { wood: 0, stone: 0, copper: 0, iron: 0, xp: 0 };
+    res = { wood: 0, stone: 0, copper: 0, iron: 0, crystal: 0, xp: 0 };
     spawnTimer = 0; time = 0; kills = 0; shake = 0; gameOver = false;
     topUpNodes();
     mage.x = tower.x - 14; mage.y = towerBaseY() + 16;
@@ -215,6 +230,9 @@
 
   function startDay() {            // morning: the smith is up and the tower is rooted
     phase = 'day'; zoomTarget = DAY_ZOOM; dayTime = DAY_LENGTH; dusk = false; toWorkshop = false; mage.z = 0;
+    const walked = Math.round(Math.hypot(tower.x - lastDayPos.x, tower.y - lastDayPos.y) / 10); lastDayPos = { x: tower.x, y: tower.y };
+    dayGain = { wood: 0, stone: 0, copper: 0, iron: 0, crystal: 0, xp: 0 };
+    banner = { text: 'DAY ' + nightNo, sub: nightNo > 1 ? 'THE TOWER WALKED ' + walked + 'm' : 'GATHER, UPGRADE, THEN SLEEP', t: 0, dur: 3 };
     tower.scripted = false; tower.vx = tower.vy = 0; tower.bury.fill(1); tower.legPull = [0, 0, 0, 0];
     tower.hp = tower.maxHp;
     mage.vx = mage.vy = 0; mage.swing = 0;
@@ -232,7 +250,9 @@
   function goToBed() {
     if (phase !== 'day') return;
     menu = false; phase = 'bed'; mage.vx = mage.vy = 0;
-    bed = { t: -1, flags: {}, zzz: 0 };
+    for (const l of loot) { res[l.type]++; dayGain[l.type]++; } loot = [];     // anything still lying about goes in the pack
+    bed = { t: -1, flags: {}, zzz: 0, zw: 0.3 };
+    floatText(mage.x, mage.y - 20, '*yawn*', '#cfd6ff');
   }
   const BED_END = 12.4;
   function skipBed() { if (phase === 'bed' && bed.t < BED_END) { if (bed.t < 0) bed.t = 0; bed.t = BED_END - 0.001; } }
@@ -251,8 +271,9 @@
         const dx = bx - mage.x, dy = by - mage.y, d = Math.hypot(dx, dy);
         if (d < 1.5) { bed.jump = 0; bed.jx = mage.x; mage.vx = mage.vy = 0; }
         else {
-          mage.vx = dx / d * 52; mage.vy = dy / d * 52;
-          mage.x += mage.vx * dt; mage.y += mage.vy * dt; mage.flip = dx < 0; mage.step += 52 * dt * 0.35;
+          mage.vx = dx / d * 40; mage.vy = dy / d * 40;                // sleepy shuffle
+          mage.x += mage.vx * dt; mage.y += mage.vy * dt; mage.flip = dx < 0; mage.step += 40 * dt * 0.35;
+          bed.zw -= dt; if (bed.zw <= 0) { bed.zw = 0.55; floatText(mage.x + 2, mage.y - 22, 'z', '#cfd6ff'); }
         }
       } else {                                                         // hop up into the tower
         bed.jump += dt / 0.5;
@@ -301,6 +322,7 @@
 
   function startNight() {          // the tower is up: hand over control
     phase = 'night'; zoom = zoomTarget = NIGHT_ZOOM; time = 0; spawnTimer = 0;
+    banner = { text: 'NIGHT ' + nightNo, sub: 'SURVIVE UNTIL DAWN', t: 0, dur: 2.6 };
     weapons.forEach((w, i) => { w.timer = 0.6 + i * 0.25; });
     tower.scripted = false; tower.hp = tower.maxHp; tower.bury.fill(0); tower.legPull = [0, 0, 0, 0];
     tower.scratch = 0; tower.pose.x = tower.pose.y = 0;
@@ -341,11 +363,11 @@
   // tower earned at night is spent on the smith himself.
   const WEAPON_COST = {
     ballista: null,
-    cannon: { wood: 8, stone: 6 }, coil: { stone: 6, copper: 4 }, frost: { wood: 6, copper: 3 },
-    catapult: { wood: 12, stone: 10 }, orb: { copper: 8, stone: 6 },
+    cannon: { wood: 8, stone: 6, iron: 2 }, coil: { stone: 6, copper: 4, crystal: 1 }, frost: { wood: 6, copper: 3, crystal: 2 },
+    catapult: { wood: 12, stone: 10, iron: 3 }, orb: { copper: 8, crystal: 3 },
   };
   const TRACK_MAX = 3;
-  const tierCost = n => n === 0 ? { wood: 4, stone: 3 } : n === 1 ? { wood: 6, stone: 5, copper: 2 } : { wood: 8, stone: 7, copper: 4 };
+  const tierCost = n => n === 0 ? { wood: 4, stone: 3 } : n === 1 ? { wood: 6, stone: 5, copper: 3 } : { wood: 8, iron: 3, crystal: 2 };
   const XP_COST = [3, 5, 8, 12, 17];
   const wInterval = w => w.interval * Math.pow(0.72, w.rapid) * Math.pow(1.1, w.heavy);
   const wDmg = w => Math.pow(0.9, w.rapid) * Math.pow(1.45, w.heavy);
@@ -355,15 +377,16 @@
   const mageSpeed = () => MAGE_SPEED * (1 + 0.1 * up.mspd);
   const swingCd = () => SWING_CD * Math.pow(0.88, up.swing);
   const xpMagnet = () => XP_MAGNET * (1 + 0.3 * up.magnet);
+  const reachBonus = () => up.reach * 2;
 
-  const RES_LETTER = { wood: 'W', stone: 'S', copper: 'C', iron: 'I', xp: 'xp' };
+  const RES_LETTER = { wood: 'W', stone: 'S', copper: 'C', iron: 'I', crystal: 'Cr', xp: 'xp' };
   const costText = c => Object.entries(c).map(([k, v]) => v + RES_LETTER[k]).join(' ');
   const canPay = c => Object.entries(c).every(([k, v]) => (res[k] || 0) >= v);
   const pay = c => { for (const [k, v] of Object.entries(c)) res[k] -= v; };
 
   // Every button in the workshop, with its rectangle in screen space (used for both drawing and clicking).
   function menuItems() {
-    const items = [], RH = 17, X0 = 14, Y0 = 38, XR = 262;
+    const items = [], RH = 16, X0 = 14, Y0 = 38, XR = 262;
     weapons.forEach((w, i) => {
       const y = Y0 + i * RH;
       if (!w.owned) {
@@ -380,17 +403,21 @@
     const rows = [
       ['TOWER HP', 'hp', 5, n => ({ wood: 5 + 4 * n, stone: 4 + 3 * n }), () => { up.hp++; tower.maxHp = towerMaxHp(); tower.hp = tower.maxHp; }],
       ['TOWER SPEED', 'spd', 4, n => ({ wood: 4 + 3 * n, copper: 2 + 2 * n }), () => { up.spd++; }],
+      ['TOWER ARMOR', 'armor', 4, n => ({ iron: 2 + 2 * n, stone: 4 + 2 * n }), () => { up.armor++; }],
+      ['TOWER REGEN', 'regen', 3, n => ({ wood: 4 + 3 * n, crystal: 1 + n }), () => { up.regen++; }],
       ['SMITH SWING', 'swing', 5, n => ({ xp: XP_COST[n] }), () => { up.swing++; }],
       ['SMITH SPEED', 'mspd', 5, n => ({ xp: XP_COST[n] }), () => { up.mspd++; }],
       ['XP MAGNET', 'magnet', 5, n => ({ xp: XP_COST[n] }), () => { up.magnet++; }],
       ['LUCKY HANDS', 'yield', 5, n => ({ xp: XP_COST[n] }), () => { up.yield++; }],
+      ['LONG REACH', 'reach', 4, n => ({ xp: XP_COST[n] }), () => { up.reach++; }],
+      ['HEAVY HAMMER', 'power', 4, n => ({ xp: XP_COST[n] }), () => { up.power++; }],
     ];
     rows.forEach(([name, key, max, costFn, act], i) => {
       const n = up[key], y = Y0 + i * RH;
       if (n >= max) items.push({ x: XR, y, w: 196, h: RH - 3, text: name + ' ' + n + ' MAX', maxed: true });
       else { const c = costFn(n); items.push({ x: XR, y, w: 196, h: RH - 3, text: name + ' ' + n + '  ' + costText(c), cost: c, act }); }
     });
-    items.push({ x: XR, y: Y0 + 6 * RH + 8, w: 196, h: 22, text: 'SLEEP: END THE DAY', big: true, act: goToBed });
+    items.push({ x: XR, y: Y0 + 10 * RH + 6, w: 196, h: 22, text: 'SLEEP: END THE DAY', big: true, act: goToBed });
     return items;
   }
 
@@ -411,10 +438,10 @@
     label('TOWER WORKSHOP', 14, 14, '#ffe9a0');
     label('E / ESC to close', 350, 14, '#8a90b0');
     label('ARMS  R=faster,weaker  H=harder,slower', 14, 26, '#aab2d8');
-    label('TOWER (wood, stone, copper)   SMITH (xp)', 262, 26, '#aab2d8');
+    label('TOWER (materials)  /  SMITH (xp)', 262, 26, '#aab2d8');
     const items = menuItems();
     weapons.forEach((w, i) => {
-      const y = 38 + i * 17;
+      const y = 38 + i * 16;
       ctx.globalAlpha = w.owned ? 1 : 0.45;
       const img = sprites[w.spr];
       if (img) ctx.drawImage(img, 0, 0, 20, 20, 14, y - 2, 16, 16); else { ctx.fillStyle = w.color; ctx.fillRect(16, y, 10, 10); }
@@ -439,6 +466,53 @@
     label('Keys 1-6 switch owned weapons on/off.', 14, 206, '#8a90b0');
     if (menuOk > 0) { ctx.globalAlpha = menuOk * 2; ctx.fillStyle = '#6fe08a'; ctx.fillRect(8, 240, 464, 2); ctx.globalAlpha = 1; }
     if (menuDeny > 0) { ctx.globalAlpha = menuDeny * 2; ctx.fillStyle = '#e05a5a'; ctx.fillRect(8, 240, 464, 2); ctx.globalAlpha = 1; }
+  }
+
+  // Big centre-screen banners ("DAY 2", "NIGHT 2")
+  function drawBanner(label) {
+    if (!banner) return;
+    const a = Math.max(0, Math.min(1, banner.t / 0.35, (banner.dur - banner.t) / 0.7));
+    ctx.globalAlpha = a; ctx.textAlign = 'center';
+    ctx.font = '16px monospace';
+    const y = 36 + Math.round((1 - a) * -6);
+    ctx.fillStyle = '#000'; ctx.fillText(banner.text, VIEW_W / 2 + 1, y + 1); ctx.fillStyle = '#ffe9a0'; ctx.fillText(banner.text, VIEW_W / 2, y);
+    ctx.font = '8px monospace';
+    label(banner.sub, VIEW_W / 2, y + 20, '#cfd6ff');
+    ctx.textAlign = 'left'; ctx.globalAlpha = 1;
+  }
+
+  const MOON = ['..XXXX.', '.XXX...', 'XXX....', 'XXX....', 'XXX....', '.XXX...', '..XXXX.'];
+  // Going-to-sleep feedback: a "good night" card with what the day earned, a moon, and sleepy dots.
+  function drawBedOverlay(label) {
+    const t = bed.t;
+    if (t < 0) {
+      ctx.textAlign = 'center';
+      label('Nightfall... time for bed', VIEW_W / 2, 30, '#cfd6ff'); ctx.textAlign = 'left';
+      return;
+    }
+    if (t > 4.8) return;
+    const a = Math.max(0, Math.min(1, t / 0.6, (4.8 - t) / 0.9));
+    ctx.globalAlpha = a;
+    const W = 230, H = 92, x = Math.round(VIEW_W / 2 - W / 2), y = 44;
+    ctx.fillStyle = 'rgba(8,10,26,0.9)'; ctx.fillRect(x, y, W, H);
+    ctx.fillStyle = '#3a4268'; ctx.fillRect(x, y, W, 1); ctx.fillRect(x, y + H - 1, W, 1); ctx.fillRect(x, y, 1, H); ctx.fillRect(x + W - 1, y, 1, H);
+    for (let r = 0; r < MOON.length; r++) for (let c = 0; c < MOON[r].length; c++) if (MOON[r][c] === 'X') { ctx.fillStyle = '#f2e6b0'; ctx.fillRect(x + W - 22 + c * 2, y + 8 + r * 2, 2, 2); }
+    for (const [sx, sy] of [[16, 12], [40, 26], [70, 14], [W - 40, 30], [30, 70]]) { ctx.fillStyle = Math.sin(t * 4 + sx) > 0 ? '#ffffff' : '#8a90b0'; ctx.fillRect(x + sx, y + sy, 1, 1); }
+    ctx.textAlign = 'center';
+    ctx.font = '12px monospace';
+    ctx.fillStyle = '#000'; ctx.fillText('DAY ' + nightNo + ' COMPLETE', VIEW_W / 2 + 1, y + 10); ctx.fillStyle = '#ffe9a0'; ctx.fillText('DAY ' + nightNo + ' COMPLETE', VIEW_W / 2, y + 9);
+    ctx.font = '8px monospace';
+    const names = [['wood', 'WOOD'], ['stone', 'STONE'], ['copper', 'COPPER'], ['iron', 'IRON'], ['crystal', 'CRYSTAL'], ['xp', 'XP']].filter(([k]) => dayGain[k] > 0);
+    if (!names.length) label('You gathered nothing today.', VIEW_W / 2, y + 30, '#aab2d8');
+    else {
+      label('GATHERED', VIEW_W / 2, y + 28, '#aab2d8');
+      const half = Math.ceil(names.length / 2);
+      [names.slice(0, half), names.slice(half)].forEach((rowN, i) => {
+        if (rowN.length) label(rowN.map(([k, n]) => n + ' +' + dayGain[k]).join('   '), VIEW_W / 2, y + 40 + i * 11, '#e8e8f0');
+      });
+    }
+    label('Sleeping' + '.'.repeat(1 + Math.floor(t * 2.2) % 3), VIEW_W / 2, y + H - 14, '#cfd6ff');
+    ctx.textAlign = 'left'; ctx.globalAlpha = 1;
   }
 
   // The tower's face. Eyes open at night and follow the action; the window doubles as its mouth when it yawns.
@@ -470,18 +544,19 @@
   function topUpNodes() {
     const cx = tower.x, cy = towerBaseY();
     nodes = nodes.filter(n => dist2(n.x, n.y, cx, cy) < (NODE_RING_MAX + 80) ** 2);
-    let trees = nodes.filter(n => n.type === 'tree').length, rocks = nodes.length - trees;
+    const have = {}; for (const k in NODE_TYPES) have[k] = 0;
+    for (const n of nodes) have[n.type]++;
     let tries = 0;
-    while ((trees < TREES || rocks < ROCKS) && tries++ < 2000) {
-      const type = trees < TREES && (rocks >= ROCKS || Math.random() < 0.6) ? 'tree' : 'rock';
+    while (tries++ < 3000) {
+      const lacking = Object.keys(NODE_TYPES).filter(k => have[k] < NODE_TYPES[k].want);
+      if (!lacking.length) break;
+      const type = lacking[Math.floor(Math.random() * lacking.length)], T = NODE_TYPES[type];
       const a = Math.random() * 6.28;
-      const r = NODE_RING_MIN + Math.sqrt(Math.random()) * (NODE_RING_MAX - NODE_RING_MIN);
+      const r = T.from + Math.sqrt(Math.random()) * (NODE_RING_MAX - T.from);
       const x = Math.round(cx + Math.cos(a) * r), y = Math.round(cy + Math.sin(a) * r * 0.8);
-      if (nodes.some(n => dist2(n.x, n.y, x, y) < 16 * 16)) continue;
-      const tree = type === 'tree';
-      nodes.push({ type, x, y, hp: tree ? TREE_HP : ROCK_HP, maxHp: tree ? TREE_HP : ROCK_HP,
-                   r: tree ? 3 : 4, shake: 0, flash: 0 });
-      if (tree) trees++; else rocks++;
+      if (nodes.some(n => dist2(n.x, n.y, x, y) < 18 * 18)) continue;
+      nodes.push({ type, x, y, hp: T.hp, maxHp: T.hp, r: T.r, shake: 0, flash: 0, dying: 0 });
+      have[type]++;
     }
   }
 
@@ -744,6 +819,7 @@
     updateGait(dt, false);
     if (tower.vx > 2) tower.facing = 1; else if (tower.vx < -2) tower.facing = -1;
     if (tower.hitFlash > 0) tower.hitFlash -= dt;
+    if (up.regen) tower.hp = Math.min(tower.maxHp, tower.hp + 1.5 * up.regen * dt);
 
     // Spawning: ramps up through the night, and each night starts a little busier
     if (zoom < NIGHT_ZOOM * 1.5) {               // wait until the camera has pulled back out
@@ -788,7 +864,7 @@
 
       // touch damage
       if (Math.abs(z.x - tower.x) < TOWER_W / 2 + 2 && Math.abs(z.y - (tower.y - TOWER_H / 4)) < TOWER_H / 2) {
-        tower.hp -= 6 * dt;
+        tower.hp -= 6 * dt * Math.pow(0.88, up.armor);
         tower.hitFlash = 0.1;
         shake = Math.max(shake, 0.8);
         if (tower.hp <= 0) { tower.hp = 0; gameOver = true; }
@@ -807,8 +883,9 @@
   function pickTarget() {
     let best = null, bd = Infinity;
     for (const n of nodes) {
-      const cy = n.y - (n.type === 'tree' ? 6 : 3);                 // aim at the body, not the base
-      if (dist2(n.x, n.y, mage.x, mage.y) > (REACH + n.r) ** 2) continue;
+      if (n.dying > 0) continue;
+      const cy = n.y - NODE_TYPES[n.type].cy * 0.6;                 // aim at the body, not the base
+      if (dist2(n.x, n.y, mage.x, mage.y) > (REACH + reachBonus() + n.r) ** 2) continue;
       const dm = Math.min(dist2(n.x, cy, mouse.wx, mouse.wy), dist2(n.x, n.y, mouse.wx, mouse.wy));
       if (dm > (CLICK_SLOP + 6) ** 2) continue;
       if (dm < bd) { bd = dm; best = n; }
@@ -816,31 +893,56 @@
     return best;
   }
 
-  function hitNode(n) {
-    n.hp--; n.shake = 0.15; n.flash = 0.08;
-    const tree = n.type === 'tree';
-    burst(n.x, n.y - (tree ? 6 : 3), tree ? '#8a5a32' : '#9aa0aa', 5, 30);
-    shake = Math.max(shake, 0.6);
-    if (n.hp > 0) return;
+  // Broken nodes pop their drops into the air as loot; loot lands, then flies to the smith (see updateLoot).
+  function spawnLoot(type, x, y, z, count) {
+    for (let i = 0; i < count; i++)
+      loot.push({ type, x: x + rand(-3, 3), y: y + rand(-2, 3), z, vx: rand(-34, 34), vy: rand(-18, 18), vz: rand(70, 105), age: 0, bounced: false, landed: false });
+  }
 
-    nodes.splice(nodes.indexOf(n), 1);
-    if (tree) {
-      const w = 2 + Math.floor(Math.random() * 2) + (Math.random() < 0.2 * up.yield ? 1 : 0);
-      res.wood += w; floatText(n.x, n.y - 14, '+' + w + ' WOOD', '#d9a066');
-      burst(n.x, n.y - 8, '#3f7a3a', 10, 40);
-    } else {
-      const s = 2 + Math.floor(Math.random() * 2) + (Math.random() < 0.2 * up.yield ? 1 : 0);
-      res.stone += s; floatText(n.x, n.y - 9, '+' + s + ' STONE', '#c4c9d4');
-      burst(n.x, n.y - 3, '#7a808c', 10, 40);
-      if (Math.random() < COPPER_CHANCE) {
-        res.copper++; floatText(n.x, n.y - 15, '+1 COPPER', '#e08a4a');
-        burst(n.x, n.y - 3, '#e08a4a', 8, 35);
-      }
-      if (Math.random() < IRON_CHANCE) {
-        res.iron++; floatText(n.x, n.y - 21, '+1 IRON!', '#b8d0ff');
-        burst(n.x, n.y - 3, '#ffffff', 12, 45); shake = Math.max(shake, 1.5);
+  function collectLoot(l) {
+    res[l.type]++; dayGain[l.type]++; hudBump[l.type] = 0.3;
+    burst(l.x, l.y - l.z, RES_COLOR[l.type], 4, 26);
+  }
+
+  function updateLoot(dt) {
+    for (let i = loot.length - 1; i >= 0; i--) {
+      const l = loot[i];
+      l.age += dt;
+      if (!l.landed) {
+        l.vz -= 260 * dt; l.z += l.vz * dt; l.x += l.vx * dt; l.y += l.vy * dt;
+        if (l.z <= 0) {
+          l.z = 0;
+          if (!l.bounced && l.vz < -40) { l.vz = -l.vz * 0.4; l.bounced = true; l.vx *= 0.4; l.vy *= 0.4; }
+          else l.landed = true;
+        }
+      } else if (l.age > 0.55) {                                        // let it sit for a beat, then it's drawn in
+        const dx = mage.x - l.x, dy = (mage.y - 4) - l.y, d = Math.hypot(dx, dy) || 1;
+        const sp = Math.min(240, 70 + (l.age - 0.55) * 340);
+        l.x += dx / d * sp * dt; l.y += dy / d * sp * dt;
+        if (d < 5) { collectLoot(l); loot.splice(i, 1); }
       }
     }
+  }
+
+  function hitNode(n) {
+    const T = NODE_TYPES[n.type];
+    const crit = Math.random() < 0.15 * up.power;
+    n.hp -= crit ? 2 : 1; n.shake = 0.15; n.flash = 0.08;
+    burst(n.x, n.y - T.cy, T.chip, crit ? 9 : 5, 34);
+    if (n.type === 'tree') burst(n.x, n.y - T.h * 0.7, '#3f7a3a', 2, 24);          // a few leaves
+    if (crit) floatText(n.x, n.y - T.h - 2, 'CRIT!', '#ffe9a0');
+    shake = Math.max(shake, crit ? 1.4 : 0.7); hitstop = Math.max(hitstop, crit ? 0.05 : 0.028);
+    if (n.hp > 0) return;
+
+    n.dying = 0.25; hitstop = 0.075; shake = Math.max(shake, 2.2);
+    burst(n.x, n.y - T.cy, T.chip, 14, 60);
+    if (n.type === 'tree') burst(n.x, n.y - T.h * 0.6, '#3f7a3a', 12, 50);
+    T.drops.forEach(([what, lo, hi], i) => {
+      let c = lo + Math.floor(Math.random() * (hi - lo + 1));
+      if (i === 0 && Math.random() < 0.2 * up.yield) c++;
+      if (c > 0) spawnLoot(what, n.x, n.y, T.cy, c);
+    });
+    if (T.rare) { floatText(n.x, n.y - T.h - 6, 'RARE: ' + T.rare, RES_COLOR[T.drops[0][0]]); shake = Math.max(shake, 3.4); burst(n.x, n.y - T.cy, '#ffffff', 14, 70); }
   }
 
   function updateDay(dt) {
@@ -860,7 +962,7 @@
     mage.vy += (iy * mageSpeed() - mage.vy) * k;
     mage.x += mage.vx * dt; mage.y += mage.vy * dt;
     mage.step += Math.hypot(mage.vx, mage.vy) * dt * 0.35;
-    for (const n of nodes) pushOut(n.x, n.y, n.r);
+    for (const n of nodes) if (!(n.dying > 0)) pushOut(n.x, n.y, n.r);
     pushOut(tower.x, towerBaseY() - 4, 24);
     updateGait(dt, true);
 
@@ -882,12 +984,14 @@
       if (n) hitNode(n);
     }
 
+    updateLoot(dt);
+
     // XP: drifts toward the mage when close, collected on touch
     for (let i = xpDrops.length - 1; i >= 0; i--) {
       const d = xpDrops[i];
       const dx = mage.x - d.x, dy = (mage.y - 3) - d.y, dd = Math.hypot(dx, dy);
       if (dd < XP_PICKUP) {
-        xpDrops.splice(i, 1); res.xp++;
+        xpDrops.splice(i, 1); res.xp++; dayGain.xp++; hudBump.xp = 0.3;
         burst(d.x, d.y, '#3fb6ff', 4, 25);
         continue;
       }
@@ -898,6 +1002,9 @@
   // ---------- Update ----------
   function update(dt) {
     if (gameOver) return;
+    if (hitstop > 0) { hitstop -= dt; return; }          // a few frames of freeze on a hit makes it land
+    if (banner) { banner.t += dt; if (banner.t > banner.dur) banner = null; }
+    for (const k in hudBump) if (hudBump[k] > 0) hudBump[k] -= dt;
 
     // ease the zoom in log space so in and out feel the same speed
     if (phase !== 'bed') {
@@ -929,7 +1036,8 @@
     }
 
     for (const x of xpDrops) x.bob += dt * 3;
-    for (const n of nodes) { if (n.shake > 0) n.shake -= dt; if (n.flash > 0) n.flash -= dt; }
+    for (const n of nodes) { if (n.shake > 0) n.shake -= dt; if (n.flash > 0) n.flash -= dt; if (n.dying > 0) { n.dying -= dt; if (n.dying <= 0) n.gone = true; } }
+    if (nodes.some(n => n.gone)) nodes = nodes.filter(n => !n.gone);
 
     // Particles
     for (let i = particles.length - 1; i >= 0; i--) {
@@ -1101,36 +1209,31 @@
   }
 
   function drawNode(n) {
+    const T = NODE_TYPES[n.type];
     const jig = n.shake > 0 ? (Math.random() < 0.5 ? -1 : 1) * 0.5 : 0;
-    const x = n.x + jig, y = n.y;
-    if (n.type === 'tree') {
-      if (sprites.tree) {
-        shadow(x - 6, y - 1, 12, 2);
-        drawSprite(n.flash > 0 && flashes.tree ? flashes.tree : sprites.tree, x, y, 0.5, 1);
-        return;
-      }
+    const x = n.x + jig, y = n.y, img = sprites[T.spr];
+    const dying = n.dying > 0, u = dying ? n.dying / 0.25 : 1;
+    if (img) {
+      shadow(x - 6, y - 1, 12, 2);
+      const im = n.flash > 0 && flashes[T.spr] ? flashes[T.spr] : img;
+      if (dying) {                                     // squash down and fade
+        ctx.save(); ctx.globalAlpha = u;
+        ctx.translate(snap(x), snap(y)); ctx.scale(1 + (1 - u) * 0.35, 0.25 + 0.75 * u);
+        ctx.drawImage(im, -Math.round(im.width / 2), -im.height);
+        ctx.restore();
+      } else drawSprite(im, x, y, 0.5, 1);
+    } else {                                           // placeholders if the art is missing
       const lit = n.flash > 0;
       shadow(x - 5, y - 1, 10, 2);
-      rect(x - 1, y - 5, 3, 5, lit ? '#d9b080' : '#5a3a22');                  // trunk
-      const g1 = lit ? '#cfe8a0' : '#2f5a2c', g2 = lit ? '#e8f8c0' : '#3f7a3a', g3 = lit ? '#ffffff' : '#5a9a4a';
-      rect(x - 6, y - 11, 13, 6, g1);
-      rect(x - 5, y - 14, 11, 4, g2);
-      rect(x - 3, y - 16, 7, 3, g2);
-      rect(x - 3, y - 14, 3, 2, g3);                                           // highlight
-    } else {
-      if (sprites.rock) {
-        shadow(x - 5, y - 1, 10, 2);
-        drawSprite(n.flash > 0 && flashes.rock ? flashes.rock : sprites.rock, x, y, 0.5, 1);
-        return;
+      if (n.type === 'tree') {
+        rect(x - 1, y - 5, 3, 5, lit ? '#d9b080' : '#5a3a22');
+        rect(x - 6, y - 11, 13, 6, lit ? '#cfe8a0' : '#2f5a2c'); rect(x - 5, y - 14, 11, 4, lit ? '#e8f8c0' : '#3f7a3a'); rect(x - 3, y - 16, 7, 3, lit ? '#e8f8c0' : '#3f7a3a');
+      } else {
+        rect(x - 5, y - 4, 10, 4, lit ? '#ffffff' : '#6a707c'); rect(x - 4, y - 6, 7, 2, lit ? '#ffffff' : '#808794');
+        if (n.type !== 'rock') rect(x - 2, y - 5, 3, 2, T.chip);
       }
-      const lit = n.flash > 0;
-      shadow(x - 5, y - 1, 10, 2);
-      rect(x - 5, y - 4, 10, 4, lit ? '#ffffff' : '#6a707c');
-      rect(x - 4, y - 6, 7, 2, lit ? '#ffffff' : '#808794');
-      rect(x - 3, y - 6, 3, 1, lit ? '#ffffff' : '#a9b0bc');                  // highlight
-      rect(x + 2, y - 3, 2, 1, '#4e5460');                                     // crack
     }
-    if (n.hp < n.maxHp) {   // tiny damage pips
+    if (!dying && n.hp < n.maxHp) {                    // damage pips
       for (let i = 0; i < n.maxHp; i++) rect(n.x - n.maxHp + i * 2, n.y + 2, 1, 1, i < n.hp ? '#f2e6b0' : '#3a3a48');
     }
   }
@@ -1143,9 +1246,9 @@
     if (phase === 'bed' && bed.t >= 0) {                       // asleep on the ground at the foot of the tower
       const br = Math.sin(performance.now() / 600) > 0 ? 0 : 1;
       shadow(x - 8, y - 1, 16, 2);
-      if (sprites.mage) {
+      if (sprites.smith) {
         ctx.save(); ctx.translate(snap(x), snap(y - 5)); ctx.rotate(Math.PI / 2);
-        ctx.drawImage(sprites.mage, -Math.round(sprites.mage.width / 2), -Math.round(sprites.mage.height / 2) - br);
+        ctx.drawImage(sprites.smith, -Math.round(sprites.smith.width / 2), -Math.round(sprites.smith.height / 2) - br);
         ctx.restore();
       } else {
         rect(x - 3, y - 6, 8, 5, '#7a4a34'); rect(x - 7, y - 7, 4, 4, '#e0b088'); rect(x - 8, y - 5 - br, 3, 2, '#6a3a22');
@@ -1153,8 +1256,10 @@
       return;
     }
     shadow(x - 3, mage.y - 1, 6, 1);
-    if (sprites.mage) {
-      drawSprite(sprites.mage, x, y - bob, 0.5, 1, mage.flip);
+    if (sprites.smith) {
+      const img = sprites.smith, fw = Math.round(img.width / 3), fr = moving ? (Math.sin(mage.step * 6.28) > 0 ? 1 : 2) : 0, top = snap(y - img.height - bob * 0.5);
+      if (!mage.flip) ctx.drawImage(img, fr * fw, 0, fw, img.height, snap(x - fw / 2), top, fw, img.height);
+      else { ctx.save(); ctx.translate(snap(x), 0); ctx.scale(-1, 1); ctx.drawImage(img, fr * fw, 0, fw, img.height, Math.round(-fw / 2), top, fw, img.height); ctx.restore(); }
     } else {
       // placeholder blacksmith: bald head, big beard, rust shirt, leather apron, boots
       rect(x - 3, y - 8 - bob, 6, 6, '#7a4a34');                    // shirt
@@ -1169,7 +1274,7 @@
     // the hammer/pick points at the mouse; on a swing it chops forward through an arc
     const swingT = mage.swing > 0 ? mage.swing / 0.18 : 0;
     const a = (mage.swing > 0 ? mage.swingDir : mage.aim) + (mage.swing > 0 ? (swingT - 0.5) * 1.8 * f : 0);
-    const hx = x + 2 * f, hy = y - 6 - bob;
+    const hx = x + 3 * f, hy = sprites.smith ? y - 12 : y - 6 - bob;
     for (let i = 0; i < 5; i++) rect(hx + Math.cos(a) * i, hy + Math.sin(a) * i, 1, 1, '#8a5a32');
     rect(hx + Math.cos(a) * 5 - 1, hy + Math.sin(a) * 5 - 1, 3, 2, '#aab0c0');   // hammer head
   }
@@ -1200,6 +1305,14 @@
       }
     }
 
+    // Loot popping out of broken nodes
+    for (const l of loot) {
+      if (!onScreen(l.x, l.y, 12)) continue;
+      const bobY = l.landed ? Math.sin(l.age * 7) * 0.6 : 0, ic = sprites['ic_' + l.type];
+      shadow(l.x - 3, l.y + 1, 6, 1);
+      if (ic) drawSprite(ic, l.x, l.y - l.z + bobY, 0.5, 1); else rect(l.x - 2, l.y - l.z - 4 + bobY, 4, 4, RES_COLOR[l.type]);
+    }
+
     // Everything that stands up is drawn back-to-front by where its feet are
     const list = [];
     for (const n of nodes) if (onScreen(n.x, n.y, 24)) list.push([n.y, 0, n]);
@@ -1215,7 +1328,7 @@
     if (phase === 'day' && !menu) {
       const t = pickTarget();
       if (t) {
-        const h = t.type === 'tree' ? 18 : 9, w = t.type === 'tree' ? 12 : 12, bx = t.x - w / 2, by = t.y - h;
+        const ti = sprites[NODE_TYPES[t.type].spr], h = ti ? ti.height : NODE_TYPES[t.type].h, w = (ti ? ti.width : 12) + 2, bx = t.x - w / 2, by = t.y - h;
         for (const [cx, cy, dx, dy] of [[bx, by, 1, 1], [bx + w, by, -1, 1], [bx, by + h, 1, -1], [bx + w, by + h, -1, -1]]) {
           rect(Math.min(cx, cx + 3 * dx), cy, 3, 1, '#ffe9a0'); rect(cx - (dx > 0 ? 0 : 1), Math.min(cy, cy + 3 * dy), 1, 3, '#ffe9a0');
         }
@@ -1312,13 +1425,14 @@
     const label = (t, x, y, c) => { ctx.fillStyle = '#000'; ctx.fillText(t, x + 1, y + 1); ctx.fillStyle = c; ctx.fillText(t, x, y); };
 
     // resources, always visible
-    const row = [['WOOD', res.wood, '#d9a066'], ['STONE', res.stone, '#c4c9d4'], ['COPPER', res.copper, '#e08a4a'],
-                 ['IRON', res.iron, '#b8d0ff'], ['XP', res.xp, '#3fb6ff']];
+    const row = [['wood', res.wood], ['stone', res.stone], ['copper', res.copper], ['iron', res.iron], ['crystal', res.crystal], ['xp', res.xp]];
     let rx = 8;
-    for (const [n, v, c] of row) {
-      ctx.fillStyle = '#000'; ctx.fillRect(rx, VIEW_H - 23, 5, 5); ctx.fillStyle = c; ctx.fillRect(rx + 1, VIEW_H - 22, 3, 3);
-      const t = n + ' ' + v; label(t, rx + 8, VIEW_H - 24, '#e8e8f0');
-      rx += 8 + ctx.measureText(t).width + 10;
+    for (const [k, v] of row) {
+      const bump = Math.max(0, hudBump[k] || 0), iy = VIEW_H - 27 - Math.round(Math.sin(bump / 0.3 * Math.PI) * 5);
+      const ic = k === 'xp' ? sprites.xp : sprites['ic_' + k];
+      if (ic) ctx.drawImage(ic, rx, iy + (k === 'xp' ? 2 : 0)); else { ctx.fillStyle = RES_COLOR[k]; ctx.fillRect(rx + 2, iy + 2, 6, 6); }
+      const t = String(v); label(t, rx + 12, VIEW_H - 24, bump > 0 ? '#ffffff' : '#e8e8f0');
+      rx += 12 + ctx.measureText(t).width + 8;
     }
 
     if (phase === 'night') {
@@ -1356,6 +1470,8 @@
       label(phase === 'bed' ? 'SPACE to skip' : '', VIEW_W - 76, VIEW_H - 12, '#8a90b0');
     }
     if (menu && phase === 'day') drawMenu(label);
+    drawBanner(label);
+    if (phase === 'bed') drawBedOverlay(label);
 
     // our own cursor (the system one is hidden): crosshair in the field, arrow over the workshop
     if (phase === 'day' || gameOver) {
@@ -1391,7 +1507,7 @@
   reset();
   // test hook: lets an automated check read game state; harmless for players
   window.__duolith = { get: () => ({ up, menu, dayTime, bed, dawnT, weapons, shots: shots.length, phase, zoom, res, xp: xpDrops.length, nodes: nodes.length, nodeList: nodes, xpList: xpDrops, mage, tower, zombies: zombies.length, gameOver, camTx, camTy }),
-                       setXpDrops: a => { xpDrops = a; }, menuItems, openWorkshop };
+                       setXpDrops: a => { xpDrops = a; }, menuItems, openWorkshop, hitNode, getLoot: () => loot.length };
   let last = performance.now();
   function frame(now) {
     const dt = Math.min(0.05, (now - last) / 1000);
