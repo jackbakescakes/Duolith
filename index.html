@@ -26,7 +26,7 @@
   const TOWER_ACCEL = 5;                     // smoothing: higher = snappier
   const TOWER_W = 40, TOWER_H = 64;          // hitbox; the body sprite is 64x88 (plus legs), so the hitbox is forgiving
   const BODY_W = 64, BODY_H = 88;            // body sprite size
-  const LEG_VIS = 11;                        // how much of each root-leg shows below the body
+  const LEG_VIS = 16;                        // how much of each root-leg shows below the body
   const FIRE_INTERVAL = 2.0;                 // seconds between ballista shots
   const ARROW_SPEED = 220;
   const ARROW_LIFE = 1.4;
@@ -50,6 +50,7 @@
   const TREES = 24, ROCKS = 16;              // resource nodes kept around the tower each dawn
   const NODE_RING_MIN = 56, NODE_RING_MAX = 230;
   const COPPER_CHANCE = 0.18, IRON_CHANCE = 0.05;   // per rock broken
+  const DAY_LENGTH = 90, NIGHT_LENGTH = 70;          // seconds
 
   const canvas = document.getElementById('c');
   const ctx = canvas.getContext('2d');
@@ -124,11 +125,15 @@
   addEventListener('keydown', e => {
     keys[e.code] = true;
     if (e.code === 'KeyR') reset();
-    if (e.code === 'KeyN' && !e.repeat) togglePhase();   // TEMPORARY: manual day/night switch for testing
-    if (e.code === 'Space') e.preventDefault();
-    if (/^Digit[1-6]$/.test(e.code) && !e.repeat) {     // TEMPORARY: toggle weapons 1-6 to try them out
+    if (e.code === 'KeyN' && !e.repeat) togglePhase();   // skip ahead: sleep now / dawn now / skip the cutscene
+    if (e.code === 'Space') { e.preventDefault(); if (phase === 'bed' && !e.repeat) skipBed(); }
+    if (e.code === 'Tab') e.preventDefault();
+    if ((e.code === 'KeyE' || e.code === 'Tab' || e.code === 'Escape') && !e.repeat && phase === 'day') {
+      if (menu) menu = false; else if (e.code !== 'Escape') openWorkshop();
+    }
+    if (/^Digit[1-6]$/.test(e.code) && !e.repeat) {     // switch owned weapons on and off
       const w = weapons[+e.code.slice(5) - 1];
-      if (w) { w.on = !w.on; w.timer = Math.min(w.timer, 0.3); }
+      if (w && w.owned) { w.on = !w.on; w.timer = Math.min(w.timer, 0.3); }
     }
   });
   addEventListener('keyup', e => { keys[e.code] = false; });
@@ -138,27 +143,38 @@
     mouse.sx = (e.clientX - r.left) / r.width * VIEW_W;
     mouse.sy = (e.clientY - r.top) / r.height * VIEW_H;
   });
-  canvas.addEventListener('mousedown', e => { if (e.button === 0) mouse.down = true; });
+  canvas.addEventListener('mousedown', e => {
+    if (e.button !== 0) return;
+    if (menu && phase === 'day') { menuClick(); return; }
+    if (phase === 'day' && clickedTower()) { openWorkshop(); return; }
+    mouse.down = true;
+  });
   addEventListener('mouseup', e => { if (e.button === 0) mouse.down = false; });
 
   // ---------- State ----------
   let phase, zoom, zoomTarget, dayLight, nightNo;
+  let dayTime, bed, dawnT, menu, menuOk = 0, menuDeny = 0, up;
   let tower, mage, zombies, shots, zaps, rings, weapons, xpDrops, particles, nodes, floaters, res;
   let orbAng, spawnTimer, time, kills, shake, gameOver;
   let camX, camY, camTx = 0, camTy = 0;      // camTx/camTy: last screen translation, for mouse and HUD maths
 
   function reset() {
-    phase = 'night'; zoom = zoomTarget = NIGHT_ZOOM; dayLight = 0; nightNo = 1;
+    phase = 'day'; zoom = zoomTarget = DAY_ZOOM; dayLight = 1; nightNo = 1; dayTime = DAY_LENGTH;
+    bed = null; dawnT = 0; menu = false; dawnFlags = {};
+    up = { hp: 0, spd: 0, swing: 0, mspd: 0, magnet: 0, yield: 0 };
     tower = { x: 0, y: 0, vx: 0, vy: 0, hp: 100, maxHp: 100, hitFlash: 0, step: 0, facing: 1,
-              amp: 0, sink: 0, thump: 0, bodyX: 0, bodyY: 0, dirx: 0, diry: 0, legS: [0, 0, 0, 0] };
+              amp: 0, sink: 1, thump: 0, bodyX: 0, bodyY: 0, dirx: 1, diry: 0, legS: [0, 0, 0, 0],
+              bury: [1, 1, 1, 1], legPull: [0, 0, 0, 0], pose: { x: 0, y: 0 }, scratch: 0, scratchWob: 0, scripted: false,
+              eye: { open: 0, look: 0, mouth: 0, blink: 0, nextBlink: 3 } };
     mage = { x: 0, y: 0, vx: 0, vy: 0, aim: 0, flip: false, step: 0, swing: 0, swingCd: 0, swingDir: 0 };
     zombies = []; shots = []; zaps = []; rings = []; xpDrops = []; particles = []; nodes = []; floaters = [];
-    weapons = WEAPON_DEFS.map((d, i) => ({ ...d, on: d.id === 'ballista', timer: 0.6 + i * 0.25, kick: 0, face: 1 }));
+    weapons = WEAPON_DEFS.map((d, i) => ({ ...d, owned: d.id === 'ballista', on: d.id === 'ballista', rapid: 0, heavy: 0, timer: 0.6 + i * 0.25, kick: 0, face: 1 }));
     orbAng = 0;
     res = { wood: 0, stone: 0, copper: 0, iron: 0, xp: 0 };
     spawnTimer = 0; time = 0; kills = 0; shake = 0; gameOver = false;
-    camX = 0; camY = 0;
     topUpNodes();
+    mage.x = tower.x - 14; mage.y = towerBaseY() + 16;
+    camX = mage.x; camY = mage.y - 6;
   }
 
   // ---------- Helpers ----------
@@ -176,27 +192,257 @@
   function floatText(x, y, text, color) { floaters.push({ x, y, text, color, life: 1.1 }); }
 
   // ---------- Phases ----------
-  // TEMPORARY: N switches phase by hand. The real loop (timed day, the zoom-out wake-up, upgrades) comes later.
+  // The loop: day (gather, upgrade) -> bed cutscene -> night (the tower walks and fights) -> dawn -> day ...
+  const easeIO = t => t * t * (3 - 2 * t);
+  const seg = (t, a, b) => Math.max(0, Math.min(1, (t - a) / (b - a)));
+  const lerp = (a, b, t) => a + (b - a) * t;
+  let dawnFlags = {};
+
+  function nearTower() { return Math.hypot(mage.x - tower.x, mage.y - towerBaseY()) < 52; }
+
+  // TEMPORARY test shortcut (N): skip ahead to the next phase.
   function togglePhase() {
     if (gameOver) return;
-    if (phase === 'night') startDay(); else startNight();
+    if (phase === 'day') goToBed(); else if (phase === 'night') startDawn(); else if (phase === 'bed') skipBed();
   }
 
-  function startDay() {
-    phase = 'day'; zoomTarget = DAY_ZOOM;
-    for (const z of zombies) burst(z.x, z.y, '#6f6a80', 4, 30);   // the dead crumble away at dawn
-    zombies = []; shots = []; zaps = []; rings = [];
-    tower.vx = tower.vy = 0;                                        // tower roots where it stopped
-    mage.x = tower.x; mage.y = towerBaseY() + 16; mage.vx = mage.vy = 0;
+  function startDay() {            // morning: the mage is up and the tower is rooted
+    phase = 'day'; zoomTarget = DAY_ZOOM; dayTime = DAY_LENGTH;
+    tower.scripted = false; tower.vx = tower.vy = 0; tower.bury.fill(1); tower.legPull = [0, 0, 0, 0];
+    tower.hp = tower.maxHp;
+    mage.x = tower.x - 14; mage.y = towerBaseY() + 16; mage.vx = mage.vy = 0; mage.swing = 0;
     topUpNodes();
   }
 
-  function startNight() {
-    phase = 'night'; zoomTarget = NIGHT_ZOOM;
-    nightNo++; time = 0; spawnTimer = 0;
+  // Bedtime: the mage walks to the foot of the tower and lies down; see updateBed for the wake-up.
+  function goToBed() {
+    if (phase !== 'day') return;
+    menu = false; phase = 'bed'; mage.vx = mage.vy = 0;
+    bed = { t: -1, flags: {}, zzz: 0 };
+  }
+  const BED_END = 12.4;
+  function skipBed() { if (phase === 'bed' && bed.t < BED_END) { if (bed.t < 0) bed.t = 0; bed.t = BED_END - 0.001; } }
+
+  function poseBody(dt) {          // body offsets while a cutscene is driving the tower
+    tower.thump *= Math.exp(-9 * dt);
+    const avg = (tower.bury[0] + tower.bury[1] + tower.bury[2] + tower.bury[3]) / 4;
+    tower.bodyY = tower.pose.y + tower.thump * 1.6 + avg * 4;
+    tower.bodyX = tower.pose.x;
+  }
+
+  function updateBed(dt) {
+    const bx = tower.x - 12, by = towerBaseY() + 10;                  // where the mage lies down
+    if (bed.t < 0) {                                                   // walk to the foot of the tower
+      const dx = bx - mage.x, dy = by - mage.y, d = Math.hypot(dx, dy);
+      if (d < 1.5) { bed.t = 0; mage.x = bx; mage.y = by; mage.vx = mage.vy = 0; tower.scripted = true; }
+      else {
+        mage.vx = dx / d * 52; mage.vy = dy / d * 52;
+        mage.x += mage.vx * dt; mage.y += mage.vy * dt; mage.flip = dx < 0; mage.step += 52 * dt * 0.35;
+      }
+      camX = mage.x; camY = mage.y - 6;
+      updateGait(dt, true);
+      return;
+    }
+    bed.t += dt;
+    const t = bed.t, e = tower.eye, P = tower.pose;
+
+    // Camera: from the sleeping mage, up the tower, and out until the tower is about the size the mage was
+    const pz = easeIO(seg(t, 0.8, 4.0));
+    zoom = Math.exp(lerp(Math.log(DAY_ZOOM), Math.log(NIGHT_ZOOM), pz)); zoomTarget = NIGHT_ZOOM;
+    camX = lerp(mage.x, tower.x, pz); camY = lerp(mage.y - 6, tower.y - 8, pz);
+
+    bed.zzz -= dt;                                                     // sleepy Zs
+    if (t < 4.2 && bed.zzz <= 0) { bed.zzz = 0.7; floatText(mage.x + 3, mage.y - 9, 'z', '#cfd6ff'); }
+
+    // 4.0 eyes open, 4.7 yawn, 5.9 stretch, 7.1 legs out, 9.7 look around, 10.6 scratch nose, 11.7 push off
+    const open = easeIO(seg(t, 4.0, 4.7));
+    const ym = Math.sin(seg(t, 4.7, 5.9) * Math.PI);
+    e.mouth = ym; e.open = open * (1 - 0.65 * ym);
+    const sm = seg(t, 5.9, 7.1), pm = seg(t, 11.7, 12.3);
+    P.x = Math.sin(sm * 6.2832) * 3.4 + pm * 2.5 * (tower.dirx || 1);
+    P.y = -2.2 * ym - 3 * Math.sin(sm * Math.PI) + (t > 11.7 ? -1 * Math.sin(pm * Math.PI) : 0);
+    if (sm > 0 && sm < 0.05 && !bed.flags.cr) { bed.flags.cr = 1; shake = Math.max(shake, 1); }
+
+    for (let i = 0; i < 4; i++) {                                      // pull the legs out of the ground, one at a time
+      const st = 7.1 + i * 0.55, u = seg(t, st, st + 0.9);
+      tower.bury[i] = 1 - easeIO(u);
+      tower.legPull[i] = Math.sin(u * Math.PI) * 9;
+      const p = legPose(i);
+      if (u > 0 && !bed.flags['up' + i]) { bed.flags['up' + i] = 1; burst(p.x, p.y, '#5a4636', 12, 50); shake = Math.max(shake, 1.6); }
+      if (u >= 1 && !bed.flags['dn' + i]) { bed.flags['dn' + i] = 1; burst(p.x, p.y, '#6b5a48', 9, 38); tower.thump = 1; shake = Math.max(shake, 2.4); }
+    }
+
+    e.look = Math.sin(seg(t, 9.7, 10.6) * 6.2832);                    // glance around
+    tower.scratch = Math.sin(seg(t, 10.6, 11.7) * Math.PI); tower.scratchWob = t * 24;   // scratch the nose with a leg
+    poseBody(dt);
+    if (t >= BED_END) startNight();
+  }
+
+  function startNight() {          // the tower is up: hand over control
+    phase = 'night'; zoom = zoomTarget = NIGHT_ZOOM; time = 0; spawnTimer = 0;
     weapons.forEach((w, i) => { w.timer = 0.6 + i * 0.25; });
-    tower.hp = tower.maxHp;                                         // the tower wakes rested
-    mage.swing = 0;
+    tower.scripted = false; tower.hp = tower.maxHp; tower.bury.fill(0); tower.legPull = [0, 0, 0, 0];
+    tower.scratch = 0; tower.pose.x = tower.pose.y = 0;
+    tower.eye.open = 1; tower.eye.mouth = 0; tower.eye.look = 0;
+    camX = tower.x; camY = tower.y; bed = null; mage.swing = 0;
+    shake = Math.max(shake, 1);
+  }
+
+  // First light: the dead crumble, the tower plants its legs one by one and nods off, the mage wakes.
+  function startDawn() {
+    if (phase !== 'night') return;
+    phase = 'dawn'; dawnT = 0; dawnFlags = {};
+    for (const z of zombies) burst(z.x, z.y, '#6f6a80', 4, 30);
+    zombies = []; shots = []; zaps = []; rings = [];
+    tower.scripted = true; tower.legPull = [0, 0, 0, 0];
+    mage.x = tower.x - 14; mage.y = towerBaseY() + 16; mage.vx = mage.vy = 0;
+    floatText(tower.x, tower.y - 50, 'DAWN', '#ffe9a0');
+  }
+
+  function updateDawn(dt) {
+    dawnT += dt;
+    tower.vx *= Math.exp(-5 * dt); tower.vy *= Math.exp(-5 * dt);
+    tower.x += tower.vx * dt; tower.y += tower.vy * dt;
+    for (let i = 0; i < 4; i++) {
+      const st = 0.9 + i * 0.4, u = seg(dawnT, st, st + 0.5);
+      tower.bury[i] = easeIO(u);
+      if (u >= 1 && !dawnFlags['p' + i]) { dawnFlags['p' + i] = 1; const p = legPose(i); burst(p.x, p.y, '#6b5a48', 8, 34); tower.thump = 1; shake = Math.max(shake, 1.8); }
+    }
+    updateGait(dt, false);
+    const e = tower.eye; e.open = 1 - easeIO(seg(dawnT, 2.0, 2.8));
+    if (dawnT > 2.2) zoomTarget = DAY_ZOOM;
+    if (dawnT >= 3.6) { nightNo++; startDay(); }
+  }
+
+  // ---------- Upgrades ----------
+  // By day the mage spends gathered wood, stone and copper on the tower (new weapons, and two ways to improve each:
+  // RAPID fires faster but each hit is weaker, HEAVY hits harder but fires slower) and on the tower's body. XP the
+  // tower earned at night is spent on the mage himself.
+  const WEAPON_COST = {
+    ballista: null,
+    cannon: { wood: 8, stone: 6 }, coil: { stone: 6, copper: 4 }, frost: { wood: 6, copper: 3 },
+    catapult: { wood: 12, stone: 10 }, orb: { copper: 8, stone: 6 },
+  };
+  const TRACK_MAX = 3;
+  const tierCost = n => n === 0 ? { wood: 4, stone: 3 } : n === 1 ? { wood: 6, stone: 5, copper: 2 } : { wood: 8, stone: 7, copper: 4 };
+  const XP_COST = [3, 5, 8, 12, 17];
+  const wInterval = w => w.interval * Math.pow(0.72, w.rapid) * Math.pow(1.1, w.heavy);
+  const wDmg = w => Math.pow(0.9, w.rapid) * Math.pow(1.45, w.heavy);
+  const orbCount = () => ORB_COUNT + weapons[5].rapid;
+  const towerMaxHp = () => 100 + 25 * up.hp;
+  const towerSpeed = () => TOWER_SPEED * (1 + 0.08 * up.spd);
+  const mageSpeed = () => MAGE_SPEED * (1 + 0.1 * up.mspd);
+  const swingCd = () => SWING_CD * Math.pow(0.88, up.swing);
+  const xpMagnet = () => XP_MAGNET * (1 + 0.3 * up.magnet);
+
+  const RES_LETTER = { wood: 'W', stone: 'S', copper: 'C', iron: 'I', xp: 'xp' };
+  const costText = c => Object.entries(c).map(([k, v]) => v + RES_LETTER[k]).join(' ');
+  const canPay = c => Object.entries(c).every(([k, v]) => (res[k] || 0) >= v);
+  const pay = c => { for (const [k, v] of Object.entries(c)) res[k] -= v; };
+
+  // Every button in the workshop, with its rectangle in screen space (used for both drawing and clicking).
+  function menuItems() {
+    const items = [], RH = 17, X0 = 14, Y0 = 38, XR = 262;
+    weapons.forEach((w, i) => {
+      const y = Y0 + i * RH;
+      if (!w.owned) {
+        const c = WEAPON_COST[w.id];
+        items.push({ x: X0 + 70, y, w: 168, h: RH - 3, text: 'BUY  ' + costText(c), cost: c, act: () => { w.owned = true; w.on = true; w.timer = 0.3; } });
+        return;
+      }
+      [['rapid', 0], ['heavy', 85]].forEach(([track, dx]) => {
+        const n = w[track], label = track === 'rapid' ? 'RAPID' : 'HEAVY';
+        if (n >= TRACK_MAX) items.push({ x: X0 + 70 + dx, y, w: 83, h: RH - 3, text: label + ' MAX', maxed: true });
+        else { const c = tierCost(n); items.push({ x: X0 + 70 + dx, y, w: 83, h: RH - 3, text: label[0] + (n + 1) + ' ' + costText(c), cost: c, act: () => { w[track]++; } }); }
+      });
+    });
+    const rows = [
+      ['TOWER HP', 'hp', 5, n => ({ wood: 5 + 4 * n, stone: 4 + 3 * n }), () => { up.hp++; tower.maxHp = towerMaxHp(); tower.hp = tower.maxHp; }],
+      ['TOWER SPEED', 'spd', 4, n => ({ wood: 4 + 3 * n, copper: 2 + 2 * n }), () => { up.spd++; }],
+      ['MAGE SWING', 'swing', 5, n => ({ xp: XP_COST[n] }), () => { up.swing++; }],
+      ['MAGE SPEED', 'mspd', 5, n => ({ xp: XP_COST[n] }), () => { up.mspd++; }],
+      ['XP MAGNET', 'magnet', 5, n => ({ xp: XP_COST[n] }), () => { up.magnet++; }],
+      ['LUCKY HANDS', 'yield', 5, n => ({ xp: XP_COST[n] }), () => { up.yield++; }],
+    ];
+    rows.forEach(([name, key, max, costFn, act], i) => {
+      const n = up[key], y = Y0 + i * RH;
+      if (n >= max) items.push({ x: XR, y, w: 196, h: RH - 3, text: name + ' ' + n + ' MAX', maxed: true });
+      else { const c = costFn(n); items.push({ x: XR, y, w: 196, h: RH - 3, text: name + ' ' + n + '  ' + costText(c), cost: c, act }); }
+    });
+    items.push({ x: XR, y: Y0 + 6 * RH + 8, w: 196, h: 22, text: 'SLEEP: END THE DAY', big: true, act: goToBed });
+    return items;
+  }
+
+  function menuClick() {
+    for (const it of menuItems()) {
+      if (mouse.sx < it.x || mouse.sx > it.x + it.w || mouse.sy < it.y || mouse.sy > it.y + it.h) continue;
+      if (it.maxed || !it.act) return;
+      if (it.cost && !canPay(it.cost)) { menuDeny = 0.25; return; }
+      if (it.cost) pay(it.cost);
+      it.act(); menuOk = 0.25;
+      return;
+    }
+  }
+
+  function drawMenu(label) {
+    ctx.fillStyle = 'rgba(8,10,20,0.92)'; ctx.fillRect(8, 8, 464, 232);
+    ctx.fillStyle = '#3a4268'; ctx.fillRect(8, 8, 464, 1); ctx.fillRect(8, 239, 464, 1); ctx.fillRect(8, 8, 1, 232); ctx.fillRect(471, 8, 1, 232);
+    label('TOWER WORKSHOP', 14, 14, '#ffe9a0');
+    label('E / ESC to close', 350, 14, '#8a90b0');
+    label('ARMS  R=faster,weaker  H=harder,slower', 14, 26, '#aab2d8');
+    label('TOWER (wood, stone, copper)   MAGE (xp)', 262, 26, '#aab2d8');
+    const items = menuItems();
+    weapons.forEach((w, i) => {
+      const y = 38 + i * 17;
+      ctx.globalAlpha = w.owned ? 1 : 0.45;
+      const img = sprites[w.spr];
+      if (img) ctx.drawImage(img, 0, 0, 20, 20, 14, y - 2, 16, 16); else { ctx.fillStyle = w.color; ctx.fillRect(16, y, 10, 10); }
+      ctx.globalAlpha = 1;
+      label(w.name, 33, y + 2, w.owned ? '#e8e8f0' : '#8a90b0');
+    });
+    for (const it of items) {
+      const hover = mouse.sx >= it.x && mouse.sx <= it.x + it.w && mouse.sy >= it.y && mouse.sy <= it.y + it.h;
+      const ok = !it.cost || canPay(it.cost);
+      let bg = it.maxed ? '#26262e' : ok ? (hover ? '#3c6a48' : '#2a4a34') : (hover ? '#4a2a34' : '#2e2433');
+      if (it.big) bg = hover ? '#5a4a8a' : '#403468';
+      ctx.fillStyle = bg; ctx.fillRect(it.x, it.y, it.w, it.h);
+      ctx.fillStyle = it.maxed ? '#4a4a58' : ok ? '#6fe08a' : '#6a5870'; ctx.fillRect(it.x, it.y, 1, it.h);
+      label(it.text, it.x + 5, it.y + (it.h - 8) / 2 + 1, it.maxed ? '#8a8a98' : ok || it.big ? '#ffffff' : '#a090a8');
+    }
+    // current stats
+    const b = weapons[0];
+    label('Tower HP ' + tower.maxHp + '  speed ' + Math.round(towerSpeed()) + '  ballista x' + wDmg(b).toFixed(2) + ' / ' + wInterval(b).toFixed(1) + 's', 14, 150, '#8a90b0');
+    label('Hold the mouse on trees and rocks to gather.', 14, 164, '#8a90b0');
+    label('Pick up the XP the tower dropped at night.', 14, 178, '#8a90b0');
+    label('W wood  S stone  C copper  xp = XP', 14, 192, '#8a90b0');
+    label('Keys 1-6 switch owned weapons on/off.', 14, 206, '#8a90b0');
+    if (menuOk > 0) { ctx.globalAlpha = menuOk * 2; ctx.fillStyle = '#6fe08a'; ctx.fillRect(8, 240, 464, 2); ctx.globalAlpha = 1; }
+    if (menuDeny > 0) { ctx.globalAlpha = menuDeny * 2; ctx.fillStyle = '#e05a5a'; ctx.fillRect(8, 240, 464, 2); ctx.globalAlpha = 1; }
+  }
+
+  // The tower's face. Eyes open at night and follow the action; the window doubles as its mouth when it yawns.
+  function updateEye(dt) {
+    const e = tower.eye;
+    if (phase === 'night') {
+      e.open += (1 - e.open) * (1 - Math.exp(-10 * dt));
+      const t = nearestZombieTo(tower.x, tower.y);
+      const want = t ? Math.max(-1, Math.min(1, (t.x - tower.x) / 90)) : tower.dirx;
+      e.look += (want - e.look) * (1 - Math.exp(-8 * dt));
+      e.mouth *= Math.exp(-10 * dt);
+      e.nextBlink -= dt;
+      if (e.nextBlink <= 0) { e.blink = 0.12; e.nextBlink = rand(2, 5); }
+      if (e.blink > 0) e.blink -= dt;
+    } else if (phase === 'day') {
+      e.open += (0 - e.open) * (1 - Math.exp(-6 * dt)); e.look *= Math.exp(-6 * dt); e.mouth *= Math.exp(-8 * dt);
+    }
+  }
+
+  function clickedTower() {
+    return nearTower() && Math.abs(mouse.wx - tower.x) < 26 && mouse.wy > tower.y - TOWER_H - 20 && mouse.wy < towerBaseY() + 4;
+  }
+  function openWorkshop() {
+    if (!nearTower()) { floatText(mage.x, mage.y - 16, 'GET CLOSER', '#e8e8f0'); return; }
+    menu = true; mouse.down = false;
   }
 
   // Keep a ring of trees and rocks around wherever the tower has rooted. Far-away ones are dropped.
@@ -260,7 +506,7 @@
   }
   function weaponBase(w) { const o = bodyOrigin(), s = SLOTS[w.slot]; return { x: o.x + s[0], y: o.y + s[1] }; }
   function orbPos(i) {
-    const a = orbAng + i * 6.2832 / ORB_COUNT;
+    const a = orbAng + i * 6.2832 / orbCount();
     return { x: tower.x + tower.bodyX + Math.cos(a) * ORB_RX, y: towerBaseY() - LEG_VIS - 34 + tower.bodyY + Math.sin(a) * ORB_RY,
              front: Math.sin(a) > 0 };
   }
@@ -286,7 +532,7 @@
       const d = Math.hypot(z.x - x, z.y - y);
       if (d >= r) continue;
       const k = 1 - d / r, a = Math.atan2(z.y - y, z.x - x);
-      hurtZombie(z, d < r * 0.5 ? dmg : Math.max(1, dmg - 1), Math.cos(a) * 60 * (0.4 + k), Math.sin(a) * 60 * (0.4 + k), color);
+      hurtZombie(z, d < r * 0.5 ? dmg : Math.max(dmg * 0.5, dmg - 1), Math.cos(a) * 60 * (0.4 + k), Math.sin(a) * 60 * (0.4 + k), color);
     }
     rings.push({ x, y, max: r, life: 0.3, t: 0.3, color });
   }
@@ -306,16 +552,17 @@
     const b = weaponBase(w), mx = b.x, my = b.y - 9;
     const t = nearestZombieTo(mx, my, w.id === 'coil' ? COIL_RANGE : Infinity);
     if (!t) { w.timer = 0.12; return; }              // hold fire until something is in range, then shoot promptly
-    w.timer = w.interval; w.face = t.x < mx ? -1 : 1; w.kick = 1;
+    w.timer = wInterval(w); w.face = t.x < mx ? -1 : 1; w.kick = 1;
+    const D = wDmg(w);
     const a = Math.atan2(t.y - my, t.x - mx);
     const ca = Math.cos(a), sa = Math.sin(a);
 
     if (w.id === 'ballista') {
-      shots.push({ kind: 'arrow', x: mx, y: my, vx: ca * ARROW_SPEED, vy: sa * ARROW_SPEED, a, life: ARROW_LIFE });
+      shots.push({ kind: 'arrow', x: mx, y: my, vx: ca * ARROW_SPEED, vy: sa * ARROW_SPEED, a, life: ARROW_LIFE, dmg: ARROW_DAMAGE * D });
       burst(mx + ca * 8, my + sa * 8, '#f2e6b0', 4, 40);
       shake = Math.max(shake, 1);
     } else if (w.id === 'cannon') {
-      shots.push({ kind: 'fire', x: mx + ca * 8, y: my + sa * 8, vx: ca * 135, vy: sa * 135, a, life: 2.4 });
+      shots.push({ kind: 'fire', x: mx + ca * 8, y: my + sa * 8, vx: ca * 135, vy: sa * 135, a, life: 2.4, dmg: 3 * D });
       burst(mx + ca * 10, my + sa * 10, '#ffb04a', 9, 70);
       burst(mx + ca * 10, my + sa * 10, '#555a66', 5, 35);   // smoke
       shake = Math.max(shake, 2);
@@ -330,7 +577,7 @@
       const path = [], hits = [];
       for (const z of chain) {
         path.push(jag(px, py, z.x, z.y - 6)); hits.push([z.x, z.y]);
-        hurtZombie(z, 2, 0, 0, '#9cf3ff');
+        hurtZombie(z, 2 * D, 0, 0, '#9cf3ff');
         px = z.x; py = z.y - 6;
       }
       zaps.push({ path, hits, life: 0.22, max: 0.22 });
@@ -339,7 +586,7 @@
     } else if (w.id === 'frost') {
       for (const off of [-0.22, 0, 0.22]) {
         const aa = a + off;
-        shots.push({ kind: 'shard', x: mx, y: my, vx: Math.cos(aa) * 190, vy: Math.sin(aa) * 190, a: aa, life: 1.3 });
+        shots.push({ kind: 'shard', x: mx, y: my, vx: Math.cos(aa) * 190, vy: Math.sin(aa) * 190, a: aa, life: 1.3, dmg: 1 * D });
       }
       burst(mx + ca * 6, my + sa * 6, '#d8f3ff', 5, 45);
     } else if (w.id === 'catapult') {
@@ -347,7 +594,7 @@
       const T = 0.95, z = t, d = Math.hypot(tower.x - z.x, tower.y - z.y) || 1;
       const lead = Math.min(d, z.speed * T);
       const tx = z.x + (tower.x - z.x) / d * lead, ty = z.y + (tower.y - z.y) / d * lead;
-      shots.push({ kind: 'rock', sx: mx, sy: my, tx, ty, t: 0, T, x: mx, y: my });
+      shots.push({ kind: 'rock', sx: mx, sy: my, tx, ty, t: 0, T, x: mx, y: my, dmg: 4 * D });
       burst(mx, my - 2, '#9a8a6a', 5, 35);
       shake = Math.max(shake, 1.2);
     }
@@ -364,12 +611,12 @@
     // Orbiting arcane orbs: constant contact damage in a ring around the tower
     if (weapons[5].on) {
       orbAng += dt * ORB_SPEED;
-      for (let i = 0; i < ORB_COUNT; i++) {
+      for (let i = 0; i < orbCount(); i++) {
         const o = orbPos(i);
         for (const z of zombies) {
           if (z.orbCd > 0 || Math.abs(z.x - o.x) > 9 || Math.abs(z.y - o.y) > 9) continue;
           const a = Math.atan2(z.y - tower.y, z.x - tower.x);
-          hurtZombie(z, 1, Math.cos(a) * 45, Math.sin(a) * 45, '#c490ff');
+          hurtZombie(z, wDmg(weapons[5]), Math.cos(a) * 45, Math.sin(a) * 45, '#c490ff');
           z.orbCd = 0.35;
         }
       }
@@ -384,7 +631,7 @@
         s.x = s.sx + (s.tx - s.sx) * u; s.y = s.sy + (s.ty - s.sy) * u;
         s.h = Math.sin(u * Math.PI) * 70;
         if (u >= 1) {
-          splash(s.tx, s.ty, 26, 4, '#b8b8c8');
+          splash(s.tx, s.ty, 26, s.dmg, '#b8b8c8');
           burst(s.tx, s.ty, '#8a7a5a', 14, 70);
           shake = Math.max(shake, 3.2);
           shots.splice(i, 1);
@@ -405,9 +652,9 @@
       s.x = nx; s.y = ny;
       if (s.kind === 'fire' && Math.random() < 0.7) particles.push({ x: s.x - s.vx * 0.03, y: s.y - s.vy * 0.03, vx: rand(-8, 8), vy: rand(-8, 8), life: 0.3, max: 0.3, color: Math.random() < 0.5 ? '#ff9a3a' : '#ffd84a' });
       if (hit) {
-        if (s.kind === 'arrow') { hurtZombie(hit, ARROW_DAMAGE, s.vx * 0.15, s.vy * 0.15, '#7bd35a'); }
-        else if (s.kind === 'fire') { splash(s.x, s.y, 24, 3, '#ff9a3a'); burst(s.x, s.y, '#ffd84a', 10, 80); shake = Math.max(shake, 2.5); }
-        else if (s.kind === 'shard') { hurtZombie(hit, 1, s.vx * 0.12, s.vy * 0.12, '#bfe8ff'); hit.slow = 2.2; }
+        if (s.kind === 'arrow') { hurtZombie(hit, s.dmg, s.vx * 0.15, s.vy * 0.15, '#7bd35a'); }
+        else if (s.kind === 'fire') { splash(s.x, s.y, 24, s.dmg, '#ff9a3a'); burst(s.x, s.y, '#ffd84a', 10, 80); shake = Math.max(shake, 2.5); }
+        else if (s.kind === 'shard') { hurtZombie(hit, s.dmg, s.vx * 0.12, s.vy * 0.12, '#bfe8ff'); hit.slow = 2.2; }
         shots.splice(i, 1);
         continue;
       }
@@ -425,14 +672,17 @@
     { x: -22, y: -5, ph: 0.5 }, { x: 22, y: -5, ph: 0 },
     { x: -11, y: 0,  ph: 0 },   { x: 11,  y: 0,  ph: 0.5 },
   ];
-  const STRIDE_LEN = 56, STANCE = 0.55, LEG_LIFT = 7;
+  // The stance foot slides back exactly as far as the body travels during the stance (STRIDE_LEN * STANCE), so planted
+  // feet stay put on the ground instead of skating. The swing is eased: slow lift-off, fast middle, soft landing.
+  const STRIDE_LEN = 34, STANCE = 0.55, LEG_LIFT = 9;
+  const SLIDE = STRIDE_LEN * STANCE;
 
   function legPose(i) {
     const L = LEGS[i], s = (tower.step + L.ph) % 1, amp = tower.amp;
     let f, lift = 0;
     if (s < STANCE) f = 0.5 - s / STANCE;                        // planted: foot slides from front to back
-    else { const u = (s - STANCE) / (1 - STANCE); f = -0.5 + u; lift = Math.sin(u * Math.PI) * LEG_LIFT * amp; }
-    return { x: tower.x + L.x + tower.dirx * f * 11 * amp, y: towerBaseY() + L.y + tower.diry * f * 5 * amp, lift };
+    else { const u = (s - STANCE) / (1 - STANCE); f = -0.5 + easeIO(u); lift = Math.sin(u * Math.PI) * LEG_LIFT * amp; }
+    return { x: tower.x + L.x + tower.dirx * f * SLIDE * amp, y: towerBaseY() + L.y + tower.diry * f * SLIDE * 0.45 * amp, lift };
   }
 
   function updateGait(dt, rooted) {
@@ -451,13 +701,15 @@
       tower.legS[i] = s;
     }
     tower.thump *= Math.exp(-9 * dt);
+    const avgBury = (tower.bury[0] + tower.bury[1] + tower.bury[2] + tower.bury[3]) / 4;
     const breathe = Math.sin(performance.now() / 550) * 0.6 * (1 - tower.amp);
-    tower.bodyY = Math.cos(tower.step * 4 * Math.PI) * 1.4 * tower.amp + tower.thump * 1.6 + breathe + tower.sink * 4;
-    tower.bodyX = tower.dirx * tower.amp * 1.5 + Math.sin(tower.step * 6.2832) * 1.2 * tower.amp;
+    tower.bodyY = Math.cos(tower.step * 4 * Math.PI) * 1.2 * tower.amp + tower.thump * 1.6 + breathe + avgBury * 10;
+    tower.bodyX = tower.dirx * tower.amp * 2.2 + Math.sin(tower.step * 6.2832) * 1.2 * tower.amp;
   }
 
   function updateNight(dt) {
     time += dt;
+    if (time >= NIGHT_LENGTH) { startDawn(); return; }
 
     // Tower movement (WASD), smoothed for weight
     let ix = (keys.KeyD ? 1 : 0) - (keys.KeyA ? 1 : 0);
@@ -465,8 +717,8 @@
     const len = Math.hypot(ix, iy) || 1;
     ix /= len; iy /= len;
     const k = 1 - Math.exp(-TOWER_ACCEL * dt);
-    tower.vx += (ix * TOWER_SPEED - tower.vx) * k;
-    tower.vy += (iy * TOWER_SPEED - tower.vy) * k;
+    tower.vx += (ix * towerSpeed() - tower.vx) * k;
+    tower.vy += (iy * towerSpeed() - tower.vy) * k;
     tower.x += tower.vx * dt; tower.y += tower.vy * dt;
     updateGait(dt, false);
     if (tower.vx > 2) tower.facing = 1; else if (tower.vx < -2) tower.facing = -1;
@@ -552,11 +804,11 @@
 
     nodes.splice(nodes.indexOf(n), 1);
     if (tree) {
-      const w = 2 + Math.floor(Math.random() * 2);
+      const w = 2 + Math.floor(Math.random() * 2) + (Math.random() < 0.2 * up.yield ? 1 : 0);
       res.wood += w; floatText(n.x, n.y - 14, '+' + w + ' WOOD', '#d9a066');
       burst(n.x, n.y - 8, '#3f7a3a', 10, 40);
     } else {
-      const s = 2 + Math.floor(Math.random() * 2);
+      const s = 2 + Math.floor(Math.random() * 2) + (Math.random() < 0.2 * up.yield ? 1 : 0);
       res.stone += s; floatText(n.x, n.y - 9, '+' + s + ' STONE', '#c4c9d4');
       burst(n.x, n.y - 3, '#7a808c', 10, 40);
       if (Math.random() < COPPER_CHANCE) {
@@ -577,13 +829,17 @@
     const len = Math.hypot(ix, iy) || 1;
     ix /= len; iy /= len;
     const k = 1 - Math.exp(-MAGE_ACCEL * dt);
-    mage.vx += (ix * MAGE_SPEED - mage.vx) * k;
-    mage.vy += (iy * MAGE_SPEED - mage.vy) * k;
+    mage.vx += (ix * mageSpeed() - mage.vx) * k;
+    mage.vy += (iy * mageSpeed() - mage.vy) * k;
     mage.x += mage.vx * dt; mage.y += mage.vy * dt;
     mage.step += Math.hypot(mage.vx, mage.vy) * dt * 0.35;
     for (const n of nodes) pushOut(n.x, n.y, n.r);
     pushOut(tower.x, towerBaseY() - 4, 24);
     updateGait(dt, true);
+
+    if (!menu) dayTime -= dt;
+    if (menu && !nearTower()) menu = false;
+    if (dayTime <= 0) { goToBed(); return; }
 
     // Always face the mouse
     mage.aim = Math.atan2(mouse.wy - (mage.y - 6), mouse.wx - mage.x);
@@ -592,8 +848,8 @@
     // Chop / mine: hold the mouse to keep swinging
     if (mage.swingCd > 0) mage.swingCd -= dt;
     if (mage.swing > 0) mage.swing -= dt;
-    if (mouse.down && mage.swingCd <= 0) {
-      mage.swingCd = SWING_CD; mage.swing = 0.18; mage.swingDir = mage.aim;
+    if (mouse.down && !menu && mage.swingCd <= 0) {
+      mage.swingCd = swingCd(); mage.swing = 0.18; mage.swingDir = mage.aim;
       const n = pickTarget();
       if (n) hitNode(n);
     }
@@ -607,7 +863,7 @@
         burst(d.x, d.y, '#3fb6ff', 4, 25);
         continue;
       }
-      if (dd < XP_MAGNET) { const p = (1 - dd / XP_MAGNET) * 90 + 20; d.x += dx / dd * p * dt; d.y += dy / dd * p * dt; }
+      if (dd < xpMagnet()) { const p = (1 - dd / xpMagnet()) * 90 + 20; d.x += dx / dd * p * dt; d.y += dy / dd * p * dt; }
     }
   }
 
@@ -616,20 +872,33 @@
     if (gameOver) return;
 
     // ease the zoom in log space so in and out feel the same speed
-    const zk = 1 - Math.exp(-ZOOM_EASE * dt);
-    zoom = Math.exp(Math.log(zoom) + (Math.log(zoomTarget) - Math.log(zoom)) * zk);
-    if (Math.abs(zoom - zoomTarget) < 0.002) zoom = zoomTarget;
-    dayLight += ((phase === 'day' ? 1 : 0) - dayLight) * (1 - Math.exp(-2 * dt));
+    if (phase !== 'bed') {
+      const zk = 1 - Math.exp(-ZOOM_EASE * dt);
+      zoom = Math.exp(Math.log(zoom) + (Math.log(zoomTarget) - Math.log(zoom)) * zk);
+      if (Math.abs(zoom - zoomTarget) < 0.002) zoom = zoomTarget;
+    }
+    if (phase === 'bed') dayLight = bed.t < 0 ? 1 : 1 - easeIO(seg(bed.t, 0.2, 3.6));   // dusk falls while the mage sleeps
+    else if (phase === 'dawn') dayLight = easeIO(seg(dawnT, 0.8, 3.4));
+    else dayLight += ((phase === 'day' ? 1 : 0) - dayLight) * (1 - Math.exp(-2 * dt));
+    if (menuOk > 0) menuOk -= dt;
+    if (menuDeny > 0) menuDeny -= dt;
 
-    if (phase === 'night') updateNight(dt); else updateDay(dt);
+    if (phase === 'night') updateNight(dt);
+    else if (phase === 'day') updateDay(dt);
+    else if (phase === 'bed') updateBed(dt);
+    else updateDawn(dt);
+    updateEye(dt);
 
     // mouse in world space (uses last frame's camera, close enough)
     mouse.wx = (mouse.sx - camTx) / zoom; mouse.wy = (mouse.sy - camTy) / zoom;
 
     // Camera follows whoever you're playing
-    const fx = phase === 'night' ? tower.x : mage.x, fy = phase === 'night' ? tower.y : mage.y - 6;
-    const ck = 1 - Math.exp(-6 * dt);
-    camX += (fx - camX) * ck; camY += (fy - camY) * ck;
+    if (phase !== 'bed') {
+      const onTower = phase === 'night' || (phase === 'dawn' && dawnT < 2.2);
+      const fx = onTower ? tower.x : mage.x, fy = onTower ? tower.y : mage.y - 6;
+      const ck = 1 - Math.exp(-6 * dt);
+      camX += (fx - camX) * ck; camY += (fy - camY) * ck;
+    }
 
     for (const x of xpDrops) x.bob += dt * 3;
     for (const n of nodes) { if (n.shake > 0) n.shake -= dt; if (n.flash > 0) n.flash -= dt; }
@@ -711,14 +980,16 @@
       shadow(sx - 22, footY - 4, 44, 2); shadow(sx - 28, footY - 2, 56, 2); shadow(sx - 22, footY, 44, 2);   // soft oval
       drawOrbs(false);                                         // orbs on the far side of the tower
       for (let i = 0; i < 4; i++) {                            // root-legs, back pair first
-        const p = legPose(i), y = p.y + tower.sink * 7 - p.lift;
+        const p = legPose(i), bu = tower.bury[i], y = p.y + bu * (LEG_VIS + 2) - p.lift - tower.legPull[i];
         if (!sprites.leg) { rect(p.x - 4, y - 10, 8, 10, '#4a3a2a'); continue; }
-        if (tower.sink > 0.02) { ctx.save(); ctx.beginPath(); ctx.rect(p.x - 20, p.y - 80, 40, 81); ctx.clip(); }   // buried by day
+        if (bu > 0.02) { ctx.save(); ctx.beginPath(); ctx.rect(p.x - 20, p.y - 80, 40, 81); ctx.clip(); }   // buried part is hidden
         drawSprite(sprites.leg, p.x, y, 0.5, 1);
-        if (tower.sink > 0.02) ctx.restore();
+        if (bu > 0.02) ctx.restore();
       }
       const o = bodyOrigin();
       ctx.drawImage(tower.hitFlash > 0 && flashes.tower ? flashes.tower : sprites.tower, snap(o.x), snap(o.y));
+      drawFace(o);
+      if (tower.scratch > 0.02) drawScratchArm(o);
       for (const si of SLOT_DRAW_ORDER) {                      // weapons on their mounts
         const w = weapons[si];
         if (!w.on) continue;
@@ -743,16 +1014,45 @@
       rect(bx + 7, by + 3, 4, 4, '#1b1f2a'); rect(bx + 8, by + 4, 2, 2, '#ffcf5a');          // window
       if (!rooted) rect(bx + (tower.facing > 0 ? 11 : 4), by + 11, 2, 2, '#ffe9a0');         // eyes: closed by day
     }
-    if (rooted) {   // churned soil where the roots go in
+    if ((tower.bury[0] + tower.bury[1] + tower.bury[2] + tower.bury[3]) / 4 > 0.3) {   // churned soil where the roots go in
       const fy = sy + TOWER_H / 2;
       rect(sx - 30, fy - 1, 60, 2, '#3a2c20');
       rect(sx - 26, fy + 1, 12, 1, '#3a2c20'); rect(sx + 12, fy + 1, 14, 1, '#3a2c20'); rect(sx - 8, fy + 1, 16, 1, '#2e231a');
     }
   }
 
+  // The tower's face, painted over the wall around its window: two eyes, with the lit window as its nose/mouth.
+  function drawFace(o) {
+    const e = tower.eye, open = tower.hitFlash > 0 ? 1 : e.open * (e.blink > 0 ? 0 : 1);
+    const dark = 1 - e.open;
+    if (dark > 0.02) { ctx.globalAlpha = Math.min(1, dark * 0.9); rect(o.x + 27, o.y + 34, 10, 13, '#2c2a3a'); ctx.globalAlpha = 1; }   // window dims when asleep
+    if (e.mouth > 0.05) {                                                                                             // yawn
+      rect(o.x + 26, o.y + 38, 12, 9 + Math.round(e.mouth * 6), '#1a1420');
+      rect(o.x + 28, o.y + 44 + Math.round(e.mouth * 6), 8, 2, '#a04858');
+    }
+    for (const ex of [19, 40]) {
+      const h = Math.round(5 * open);
+      if (h <= 0) { rect(o.x + ex, o.y + 40, 5, 1, '#1a1420'); continue; }
+      const top = 37 + Math.round((5 - h) / 2);
+      rect(o.x + ex, top + o.y, 5, h, '#f4ecd0');
+      if (h >= 2) rect(o.x + ex + 1 + Math.round(e.look * 1.5), o.y + top + Math.floor((h - 2) / 2), 2, 2, '#1a1420');
+    }
+  }
+
+  // One root-leg comes up to scratch the tower's nose (cutscene only).
+  function drawScratchArm(o) {
+    const px = o.x + 54, py = o.y + 62, s = easeIO(tower.scratch);
+    const nx = o.x + 34 + Math.sin(tower.scratchWob) * 2.2 * s, ny = o.y + 48;
+    const rest = 0, aim = Math.atan2(ny - py, nx - px) - Math.PI / 2 + Math.PI * 2;
+    const r = rest + (aim - Math.PI * 2 - rest) * s;
+    ctx.save(); ctx.translate(snap(px), snap(py)); ctx.rotate(r);
+    if (sprites.leg) ctx.drawImage(sprites.leg, -9, 0); else { ctx.fillStyle = '#4a3a2a'; ctx.fillRect(-4, 0, 8, 28); }
+    ctx.restore();
+  }
+
   function drawOrbs(front) {
     if (!weapons[5].on) return;
-    for (let i = 0; i < ORB_COUNT; i++) {
+    for (let i = 0; i < orbCount(); i++) {
       const o = orbPos(i);
       if (o.front !== front) continue;
       if (sprites.p_orb) drawSprite(sprites.p_orb, o.x, o.y, 0.5, 0.5); else rect(o.x - 3, o.y - 3, 6, 6, '#b070ff');
@@ -812,6 +1112,18 @@
     const bob = moving && Math.sin(mage.step * 6.28) > 0 ? 1 : 0;
     const x = mage.x, y = mage.y;
     const f = mage.flip ? -1 : 1;
+    if (phase === 'bed' && bed.t >= 0) {                       // asleep on the ground at the foot of the tower
+      const br = Math.sin(performance.now() / 600) > 0 ? 0 : 1;
+      shadow(x - 8, y - 1, 16, 2);
+      if (sprites.mage) {
+        ctx.save(); ctx.translate(snap(x), snap(y - 5)); ctx.rotate(Math.PI / 2);
+        ctx.drawImage(sprites.mage, -Math.round(sprites.mage.width / 2), -Math.round(sprites.mage.height / 2) - br);
+        ctx.restore();
+      } else {
+        rect(x - 3, y - 6, 8, 5, '#5b3f9a'); rect(x - 7, y - 7, 4, 4, '#f0c8a0'); rect(x - 8, y - 9 - br, 5, 2, '#3f2a70');
+      }
+      return;
+    }
     shadow(x - 3, y - 1, 6, 1);
     if (sprites.mage) {
       drawSprite(sprites.mage, x, y - bob, 0.5, 1, mage.flip);
@@ -864,7 +1176,7 @@
     for (const n of nodes) if (onScreen(n.x, n.y, 24)) list.push([n.y, 0, n]);
     for (const z of zombies) if (onScreen(z.x, z.y, 12)) list.push([z.y + ZOMBIE_SIZE / 2, 1, z]);
     list.push([towerBaseY(), 2, tower]);
-    if (phase === 'day') list.push([mage.y, 3, mage]);
+    if (phase !== 'night') list.push([mage.y, 3, mage]);
     list.sort((a, b) => a[0] - b[0]);
     for (const [, kind, o] of list) {
       if (kind === 0) drawNode(o); else if (kind === 1) drawZombie(o); else if (kind === 2) drawTower(); else drawMage();
@@ -973,28 +1285,37 @@
       ctx.fillStyle = '#000'; ctx.fillRect(8, 8, 62, 6); ctx.fillStyle = '#d94a4a'; ctx.fillRect(9, 9, Math.round(60 * tower.hp / tower.maxHp), 4);
       label('NIGHT ' + nightNo + '   KILLS ' + kills, 8, 18, '#cfd6ff');
       label('XP ON GROUND ' + xpDrops.length, 8, 28, '#3fb6ff');
-      const m = Math.floor(time / 60), s = Math.floor(time % 60);
-      label(m + ':' + String(s).padStart(2, '0'), VIEW_W - 30, 8, '#8a90b0');
-      label('WASD steer tower   1-6 toggle weapons   N dawn   R restart', 8, VIEW_H - 12, '#8a90b0');
+      const left = Math.max(0, Math.ceil(NIGHT_LENGTH - time));
+      label('DAWN IN ' + Math.floor(left / 60) + ':' + String(left % 60).padStart(2, '0'), VIEW_W - 62, 8, '#8a90b0');
+      label('WASD steer tower   1-6 weapons on/off   N skip to dawn   R restart', 8, VIEW_H - 12, '#8a90b0');
       // weapon bar: one cell per mount, dimmed when switched off, with a cooldown bar
       const cw = 26, x0 = Math.round(VIEW_W / 2 - cw * 3), y0 = VIEW_H - 54;
       weapons.forEach((w, i) => {
         const x = x0 + i * cw;
         ctx.fillStyle = 'rgba(0,0,0,0.45)'; ctx.fillRect(x, y0 - 2, cw - 2, 26);
-        ctx.globalAlpha = w.on ? 1 : 0.28;
+        ctx.globalAlpha = !w.owned ? 0.1 : w.on ? 1 : 0.28;
         const img = sprites[w.spr];
         if (img) ctx.drawImage(img, x + 1, y0 - 1); else { ctx.fillStyle = w.color; ctx.fillRect(x + 6, y0 + 4, 10, 10); }
         ctx.globalAlpha = 1;
-        const cd = w.interval > 0 ? 1 - Math.max(0, w.timer) / w.interval : 1;
+        const cd = w.interval > 0 ? 1 - Math.max(0, w.timer) / wInterval(w) : 1;
         ctx.fillStyle = '#000'; ctx.fillRect(x, y0 + 20, cw - 2, 3);
         if (w.on) { ctx.fillStyle = w.color; ctx.fillRect(x + 1, y0 + 21, Math.round((cw - 4) * Math.min(1, cd)), 1); }
         label(String(i + 1), x + 2, y0 - 2, w.on ? '#ffffff' : '#6a708a');
       });
-    } else {
+    } else if (phase === 'day') {
       label('DAY ' + nightNo, 8, 8, '#ffe9a0');
+      const frac = Math.max(0, dayTime / DAY_LENGTH);
+      ctx.fillStyle = '#000'; ctx.fillRect(48, 9, 62, 6); ctx.fillStyle = frac < 0.2 ? '#ff9a5a' : '#ffcf5a'; ctx.fillRect(49, 10, Math.round(60 * frac), 4);
       label('XP ON GROUND ' + xpDrops.length, 8, 18, '#3fb6ff');
-      label('WASD walk   MOUSE aim   CLICK chop/mine   N dusk   R restart', 8, VIEW_H - 12, '#c8b890');
+      label('WASD walk  MOUSE aim  CLICK chop/mine  E / click tower: workshop  N sleep', 8, VIEW_H - 12, '#c8b890');
+      if (!menu && nearTower()) {
+        const [tx, ty] = toScreen(tower.x, tower.y - TOWER_H - 30);
+        ctx.textAlign = 'center'; label('E: WORKSHOP', Math.round(tx), Math.round(Math.max(30, ty)), '#ffe9a0'); ctx.textAlign = 'left';
+      }
+    } else {
+      label(phase === 'bed' ? 'SPACE to skip' : '', VIEW_W - 76, VIEW_H - 12, '#8a90b0');
     }
+    if (menu && phase === 'day') drawMenu(label);
 
     if (gameOver) {
       const m = Math.floor(time / 60), s = Math.floor(time % 60);
@@ -1011,8 +1332,8 @@
   // ---------- Loop ----------
   reset();
   // test hook: lets an automated check read game state; harmless for players
-  window.__duolith = { get: () => ({ weapons, shots: shots.length, phase, zoom, res, xp: xpDrops.length, nodes: nodes.length, nodeList: nodes, xpList: xpDrops, mage, tower, zombies: zombies.length, gameOver, camTx, camTy }),
-                       setXpDrops: a => { xpDrops = a; } };
+  window.__duolith = { get: () => ({ up, menu, dayTime, bed, dawnT, weapons, shots: shots.length, phase, zoom, res, xp: xpDrops.length, nodes: nodes.length, nodeList: nodes, xpList: xpDrops, mage, tower, zombies: zombies.length, gameOver, camTx, camTy }),
+                       setXpDrops: a => { xpDrops = a; }, menuItems, openWorkshop };
   let last = performance.now();
   function frame(now) {
     const dt = Math.min(0.05, (now - last) / 1000);
