@@ -5,13 +5,13 @@
     "tower": {
       "file": "tower/tower.png",
       "size": [
-        48,
-        56
+        64,
+        88
       ],
-      "colours": 24,
+      "colours": 32,
       "anchor": "bottom",
       "key": true,
-      "desc": "the body of a chunky, squat, powerful grey stone tower seen from the front with a gentle top-down 3/4 RPG perspective: very thick wide walls of big bold brick blocks, a wide crenellated top with chunky battlements, one BIG bright glowing yellow arched window in the middle, a few mossy patches, and several clearly visible flat empty stone platforms on the battlement top and on small ledges at both sides where weapons could be bolted on. NO legs and NO feet: the bottom edge is a flat straight stone base. It looks sturdy, heavy and a little bit alive"
+      "desc": "the body of a tall, chunky, powerful ROUND stone tower: a perfectly cylindrical, smoothly curved circular tower (clearly round, NOT square, NOT octagonal, NOT hexagonal, no flat straight faces) built from rings of big bold curved brick blocks, slightly wider at the base and tapering a little toward the top, with a wide round crenellated top rim with chunky battlements, a wide flat round roof deck inside the battlements, one BIG bright glowing yellow arched window in the middle, a few mossy patches, and a ring of stone ledge corbels so that several flat empty stone platforms are clearly visible on the roof deck and on two small balconies jutting out at both sides where weapons could be bolted on. NO legs and NO feet: the bottom edge is a flat stone base. It looks sturdy, heavy, tall and a little bit alive"
     },
     "zombie": {
       "file": "enemies/zombie.png",
@@ -87,19 +87,19 @@
     "leg": {
       "file": "tower/leg.png",
       "size": [
-        14,
-        22
+        18,
+        28
       ],
       "anchor": "bottom",
       "key": true,
       "desc": "a single thick gnarled wooden tree-root leg of a giant walking tower, front view, wide knobbly root-foot at the bottom with small root toes, thick brown bark with lighter highlights, a flat top edge where it attaches to the stone body, chunky and strong",
-      "colours": 12
+      "colours": 16
     },
     "w_ballista": {
       "file": "weapons/ballista.png",
       "size": [
-        16,
-        16
+        20,
+        20
       ],
       "anchor": "bottom",
       "key": true,
@@ -109,8 +109,8 @@
     "w_cannon": {
       "file": "weapons/cannon.png",
       "size": [
-        16,
-        16
+        20,
+        20
       ],
       "anchor": "bottom",
       "key": true,
@@ -120,8 +120,8 @@
     "w_coil": {
       "file": "weapons/coil.png",
       "size": [
-        16,
-        16
+        20,
+        20
       ],
       "anchor": "bottom",
       "key": true,
@@ -131,8 +131,8 @@
     "w_frost": {
       "file": "weapons/frost.png",
       "size": [
-        16,
-        16
+        20,
+        20
       ],
       "anchor": "bottom",
       "key": true,
@@ -142,8 +142,8 @@
     "w_catapult": {
       "file": "weapons/catapult.png",
       "size": [
-        16,
-        16
+        20,
+        20
       ],
       "anchor": "bottom",
       "key": true,
@@ -153,8 +153,8 @@
     "w_orb": {
       "file": "weapons/orb.png",
       "size": [
-        16,
-        16
+        20,
+        20
       ],
       "anchor": "bottom",
       "key": true,
