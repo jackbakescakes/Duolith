@@ -51,8 +51,8 @@
   const NODE_RING_MIN = 56, NODE_RING_MAX = 230;
   // Resource nodes. drops: [resource, min, max]. 'from' is how far from the tower they start to appear.
   const NODE_TYPES = {
-    tree:    { hp: 3, r: 3, spr: 'tree',         want: 22, from: 56,  cy: 10, h: 28, chip: '#8a5a32', drops: [['wood', 2, 3]] },
-    rock:    { hp: 4, r: 4, spr: 'rock',         want: 12, from: 56,  cy: 4,  h: 11, chip: '#9aa0aa', drops: [['stone', 2, 3]] },
+    tree:    { hp: 3, r: 3, spr: 'tree', sprs: ['tree', 'tree', 'tree_pine', 'tree_pine', 'tree_birch', 'tree_autumn'], gap: 26, sway: 1.7, want: 20, from: 56,  cy: 12, h: 36, chip: '#8a5a32', drops: [['wood', 2, 3]] },
+    rock:    { hp: 4, r: 4, spr: 'rock', sprs: ['rock', 'rock', 'rock_moss', 'rock_tall', 'rock_pair'], gap: 20, want: 12, from: 56,  cy: 5,  h: 14, chip: '#9aa0aa', drops: [['stone', 2, 3]] },
     copper:  { hp: 5, r: 4, spr: 'ore_copper',   want: 5,  from: 80,  cy: 4,  h: 11, chip: '#e08a4a', drops: [['copper', 2, 3], ['stone', 0, 1]] },
     iron:    { hp: 7, r: 4, spr: 'ore_iron',     want: 3,  from: 110, cy: 4,  h: 11, chip: '#b8d0ff', drops: [['iron', 1, 2], ['stone', 1, 1]], rare: 'IRON!' },
     crystal: { hp: 8, r: 4, spr: 'crystal_node', want: 2,  from: 140, cy: 6,  h: 14, chip: '#6fe8ff', drops: [['crystal', 1, 2]], rare: 'CRYSTAL!' },
@@ -90,6 +90,11 @@
     p_rock:  'projectiles/boulder.png',
     p_orb:   'projectiles/arcaneorb.png',
     smith:  'smith/smith.png',          // strip of 3 frames, 26x26 each: idle, walk A, walk B
+    tree_pine: 'resources/tree_pine.png', tree_birch: 'resources/tree_birch.png', tree_autumn: 'resources/tree_autumn.png',
+    rock_moss: 'resources/rock_moss.png', rock_pair: 'resources/rock_pair.png', rock_tall: 'resources/rock_tall.png',
+    grass_s: 'resources/grass_s.png', grass_tall: 'resources/grass_tall.png', grass_daisy: 'resources/grass_daisy.png',
+    grass_violet: 'resources/grass_violet.png', grass_mush: 'resources/grass_mush.png', fern: 'resources/fern.png',
+    grass: 'tiles/grass.png',
     ore_copper: 'resources/ore_copper.png', ore_iron: 'resources/ore_iron.png', crystal_node: 'resources/crystal_node.png',
     ic_wood: 'pickups/ic_wood.png', ic_stone: 'pickups/ic_stone.png', ic_copper: 'pickups/ic_copper.png',
     ic_iron: 'pickups/ic_iron.png', ic_crystal: 'pickups/ic_crystal.png',
@@ -123,6 +128,7 @@
         if (key === 'tower') flashes.tower = tint(img, '#ffd0d0');
         if (key === 'tree') flashes.tree = tint(img, '#fff4d0');
         if (key === 'rock') flashes.rock = tint(img, '#ffffff');
+        if (/^(tree|rock)_/.test(key)) flashes[key] = tint(img, '#fff8e0');
         if (key === 'ore_copper' || key === 'ore_iron' || key === 'crystal_node') flashes[key] = tint(img, '#ffffff');
         settle();
       };
@@ -554,8 +560,9 @@
       const a = Math.random() * 6.28;
       const r = T.from + Math.sqrt(Math.random()) * (NODE_RING_MAX - T.from);
       const x = Math.round(cx + Math.cos(a) * r), y = Math.round(cy + Math.sin(a) * r * 0.8);
-      if (nodes.some(n => dist2(n.x, n.y, x, y) < 18 * 18)) continue;
-      nodes.push({ type, x, y, hp: T.hp, maxHp: T.hp, r: T.r, shake: 0, flash: 0, dying: 0 });
+      const gapT = T.gap || 18;
+      if (nodes.some(n => dist2(n.x, n.y, x, y) < Math.max(gapT, NODE_TYPES[n.type].gap || 18) ** 2)) continue;
+      nodes.push({ type, x, y, hp: T.hp, maxHp: T.hp, r: T.r, shake: 0, flash: 0, dying: 0, spr: T.sprs ? T.sprs[Math.floor(Math.random() * T.sprs.length)] : T.spr });
       have[type]++;
     }
   }
@@ -1075,6 +1082,15 @@
   // deterministic ground tiles so the world has a sense of movement
   function hash(x, y) { let h = x * 374761393 + y * 668265263; h = (h ^ (h >> 13)) * 1274126177; return ((h ^ (h >> 16)) >>> 0) / 4294967295; }
 
+  function drawGrassTile(hw, hh) {
+    if (!sprites.grass || dayLight < 0.01) return;
+    const T = 32, x0 = Math.floor((camX - hw) / T) - 1, x1 = Math.floor((camX + hw) / T) + 1;
+    const y0 = Math.floor((camY - hh) / T) - 1, y1 = Math.floor((camY + hh) / T) + 1;
+    ctx.globalAlpha = dayLight;
+    for (let ty = y0; ty <= y1; ty++) for (let tx = x0; tx <= x1; tx++) ctx.drawImage(sprites.grass, tx * T, ty * T);
+    ctx.globalAlpha = 1;
+  }
+
   function drawGround(hw, hh) {
     const T = 16;
     const x0 = Math.floor((camX - hw) / T) - 1, x1 = Math.floor((camX + hw) / T) + 1;
@@ -1089,6 +1105,37 @@
         else if (h < 0.06) { rect(sx + 4, sy + 6, 1, 3, '#1d3a2a'); rect(sx + 6, sy + 5, 1, 4, '#1d3a2a'); } // grass tufts
       }
     }
+  }
+
+  // Grass tufts, flowers and mushrooms scattered by a hash so they stay put. They fade in with the daylight, sway in
+  // the wind, and bend away from the smith as he walks through.
+  const TUFTS = [['grass_s', 40], ['grass_tall', 18], ['grass_daisy', 12], ['grass_violet', 9], ['grass_mush', 5], ['fern', 8]];
+  function drawGrass(hw, hh) {
+    if (dayLight < 0.02) return;
+    const C = 14, x0 = Math.floor((camX - hw) / C) - 1, x1 = Math.floor((camX + hw) / C) + 1;
+    const y0 = Math.floor((camY - hh) / C) - 1, y1 = Math.floor((camY + hh + 8) / C) + 1;
+    const total = TUFTS.reduce((a, t) => a + t[1], 0), showMage = phase === 'day' || phase === 'dawn';
+    ctx.globalAlpha = dayLight;
+    const items = [];
+    for (let ty = y0; ty <= y1; ty++) for (let tx = x0; tx <= x1; tx++) {
+      const h = hash(tx * 7 + 3, ty * 13 + 5);
+      if (h > 0.45) continue;                                          // under half the cells have a tuft
+      const h2 = hash(tx + 101, ty + 57), h3 = hash(tx + 11, ty + 301);
+      let r = h3 * total, key = TUFTS[0][0];
+      for (const [k, wgt] of TUFTS) { if (r < wgt) { key = k; break; } r -= wgt; }
+      const img = sprites[key]; if (!img) continue;
+      items.push([tx * C + h2 * (C - 2) + 1, ty * C + hash(tx + 77, ty + 9) * (C - 2) + 6, img, h]);
+    }
+    items.sort((a, b) => a[1] - b[1]);
+    for (const [x, y, img, h] of items) {
+      let sway = windAt(x) * 1.2 + Math.sin(performance.now() / 700 + h * 20) * 0.25;
+      if (showMage) {                                                  // bend away from the smith
+        const dx = x - mage.x, dy = y - mage.y, d = Math.hypot(dx, dy * 1.6);
+        if (d < 13) sway += (dx >= 0 ? 1 : -1) * (1 - d / 13) * 3.2;
+      }
+      drawSway(img, x, y, sway);
+    }
+    ctx.globalAlpha = 1;
   }
 
   function drawZombie(z) {
@@ -1208,19 +1255,36 @@
     for (let i = 0; i <= n; i++) { const t = i / n, x = ax + (bx - ax) * t, y = ay + (by - ay) * t; rect(x - 0.5, y - 0.5, 1, 1, '#ffffff'); }
   }
 
+  // Wind: a slow swell with a faster ripple on top, offset along x so gusts travel across the map.
+  const windAt = x => { const t = performance.now() / 1000; return Math.sin(t * 1.1 + x * 0.02) * 0.65 + Math.sin(t * 2.4 + x * 0.05) * 0.25; };
+
+  // Draw a sprite in horizontal bands, each shifted by a whole pixel, so the top sways more than the base and the
+  // pixels stay crisp. sway is the offset of the very top, in world pixels.
+  function drawSway(img, x, y, sway) {
+    const w = img.width, h = img.height, bands = Math.max(2, Math.min(7, Math.round(h / 6)));
+    const left = snap(x - w / 2), top = snap(y - h);
+    for (let i = 0; i < bands; i++) {
+      const sy = Math.floor(i * h / bands), ey = Math.floor((i + 1) * h / bands), k = 1 - (i + 0.5) / bands;
+      ctx.drawImage(img, 0, sy, w, ey - sy, left + Math.round(sway * k * k), top + sy, w, ey - sy);
+    }
+  }
+
   function drawNode(n) {
     const T = NODE_TYPES[n.type];
     const jig = n.shake > 0 ? (Math.random() < 0.5 ? -1 : 1) * 0.5 : 0;
-    const x = n.x + jig, y = n.y, img = sprites[T.spr];
+    const x = n.x + jig, y = n.y, sprKey = n.spr || T.spr, img = sprites[sprKey];
     const dying = n.dying > 0, u = dying ? n.dying / 0.25 : 1;
     if (img) {
       shadow(x - 6, y - 1, 12, 2);
-      const im = n.flash > 0 && flashes[T.spr] ? flashes[T.spr] : img;
+      const im = n.flash > 0 && flashes[sprKey] ? flashes[sprKey] : img;
       if (dying) {                                     // squash down and fade
         ctx.save(); ctx.globalAlpha = u;
         ctx.translate(snap(x), snap(y)); ctx.scale(1 + (1 - u) * 0.35, 0.25 + 0.75 * u);
         ctx.drawImage(im, -Math.round(im.width / 2), -im.height);
         ctx.restore();
+      } else if (T.sway) {
+        const hit = n.shake > 0 ? (Math.random() < 0.5 ? -1 : 1) * 1.2 : 0;
+        drawSway(im, x, y, windAt(n.x) * T.sway + hit);
       } else drawSprite(im, x, y, 0.5, 1);
     } else {                                           // placeholders if the art is missing
       const lit = n.flash > 0;
@@ -1291,6 +1355,8 @@
     const onScreen = (x, y, m) => x > camX - hw - m && x < camX + hw + m && y > camY - hh - m && y < camY + hh + m;
 
     drawGround(hw, hh);
+    drawGrassTile(hw, hh);
+    drawGrass(hw, hh);
 
     // XP pickups (blue gems with a little bob)
     for (const d of xpDrops) {
@@ -1328,7 +1394,7 @@
     if (phase === 'day' && !menu) {
       const t = pickTarget();
       if (t) {
-        const ti = sprites[NODE_TYPES[t.type].spr], h = ti ? ti.height : NODE_TYPES[t.type].h, w = (ti ? ti.width : 12) + 2, bx = t.x - w / 2, by = t.y - h;
+        const ti = sprites[t.spr || NODE_TYPES[t.type].spr], h = ti ? ti.height : NODE_TYPES[t.type].h, w = (ti ? ti.width : 12) + 2, bx = t.x - w / 2, by = t.y - h;
         for (const [cx, cy, dx, dy] of [[bx, by, 1, 1], [bx + w, by, -1, 1], [bx, by + h, 1, -1], [bx + w, by + h, -1, -1]]) {
           rect(Math.min(cx, cx + 3 * dx), cy, 3, 1, '#ffe9a0'); rect(cx - (dx > 0 ? 0 : 1), Math.min(cy, cy + 3 * dy), 1, 3, '#ffe9a0');
         }
@@ -1389,9 +1455,9 @@
     if (dayLight > 0.001) {
       // the ground art is night-toned, so lift it toward warm morning colour without greying it out
       ctx.globalCompositeOperation = 'soft-light';
-      ctx.globalAlpha = dayLight; ctx.fillStyle = '#ffd890'; ctx.fillRect(0, 0, VIEW_W, VIEW_H);
+      ctx.globalAlpha = dayLight * 0.4; ctx.fillStyle = '#ffd890'; ctx.fillRect(0, 0, VIEW_W, VIEW_H);
       ctx.globalCompositeOperation = 'screen';
-      ctx.globalAlpha = dayLight * 0.5; ctx.fillStyle = '#3a3018'; ctx.fillRect(0, 0, VIEW_W, VIEW_H);
+      ctx.globalAlpha = dayLight * 0.18; ctx.fillStyle = '#3a3018'; ctx.fillRect(0, 0, VIEW_W, VIEW_H);
       ctx.globalCompositeOperation = 'source-over';
     }
     ctx.globalAlpha = 1;

@@ -69,19 +69,19 @@
     "tree": {
       "file": "resources/tree.png",
       "size": [
-        26,
-        30
+        31,
+        37
       ],
       "anchor": "bottom",
       "key": true,
       "colours": 20,
-      "desc": "a round leafy dark-green tree with a short brown trunk, three-quarter top-down RPG angle"
+      "desc": "(set) 4 tree variants from art-src/sheet_trees.jpg via split3.py: tree (oak), tree_pine, tree_birch, tree_autumn; rocks rock/rock_moss/rock_pair/rock_tall from sheet_rocks.jpg; grass_*/fern from sheet_plants.jpg"
     },
     "rock": {
       "file": "resources/rock.png",
       "size": [
-        14,
-        11
+        17,
+        16
       ],
       "anchor": "bottom",
       "key": true,
@@ -226,8 +226,8 @@
     "ore_copper": {
       "file": "resources/ore_copper.png",
       "size": [
-        14,
-        11
+        16,
+        13
       ],
       "anchor": "bottom",
       "key": true,
@@ -237,8 +237,8 @@
     "ore_iron": {
       "file": "resources/ore_iron.png",
       "size": [
-        14,
-        11
+        16,
+        13
       ],
       "anchor": "bottom",
       "key": true,
@@ -249,7 +249,7 @@
       "file": "resources/crystal_node.png",
       "size": [
         14,
-        14
+        16
       ],
       "anchor": "bottom",
       "key": true,
@@ -310,6 +310,18 @@
       "key": true,
       "colours": 12,
       "desc": "a glowing cyan crystal shard"
+    },
+    "grass": {
+      "file": "tiles/grass.png",
+      "size": [
+        32,
+        32
+      ],
+      "anchor": "center",
+      "key": false,
+      "tile": true,
+      "colours": 10,
+      "desc": "a seamless tileable top-down grass ground tile in muted natural green with subtle darker and lighter patches, a few tiny blade marks and dark clover patches"
     }
   }
 }

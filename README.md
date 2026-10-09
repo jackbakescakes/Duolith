@@ -124,3 +124,6 @@ Nodes: trees (wood), rocks (stone), copper veins, iron veins (farther out) and c
 Workshop: weapons cost mixes of wood/stone/copper/iron/crystal; tier 3 of each weapon track needs iron and crystal. Tower: HP, speed, armor (iron), regen (crystal). Smith (XP): swing, speed, magnet, lucky hands, long reach, heavy hammer.
 Sleep shows a "day complete" card with what you gathered. Day/night banners and a "tower walked N m" line mark each morning.
 Art: nodes, icons and the blacksmith came from three Gemini sprite sheets (`art-src/sheet_*.jpg`), split by connected components. The smith strip is built with the split script (3 frames of 26x26).
+
+## Nature
+Four tree types (oak, pine, birch, autumn) and four rock types (boulder, mossy, pair, tall) are picked at random per node. Trees sway in the wind in pixel-crisp bands. By day a grass tile fades in over the night soil, with swaying grass tufts, daisies, violets, mushrooms and ferns that bend away from the smith. All from Gemini sheets (`art-src/sheet_trees|rocks|plants.jpg`, `tile_grass.jpg`) via `split3.py`-style splitting.
