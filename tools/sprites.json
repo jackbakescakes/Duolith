@@ -322,6 +322,138 @@
       "tile": true,
       "colours": 10,
       "desc": "a seamless tileable top-down grass ground tile in muted natural green with subtle darker and lighter patches, a few tiny blade marks and dark clover patches"
+    },
+    "tree_pine": {
+      "file": "resources/tree_pine.png",
+      "size": [
+        20,
+        38
+      ],
+      "anchor": "bottom",
+      "key": true,
+      "colours": 16,
+      "desc": "a tall conifer pine tree (cut from a Gemini sheet by tools/split3.py)"
+    },
+    "tree_birch": {
+      "file": "resources/tree_birch.png",
+      "size": [
+        15,
+        37
+      ],
+      "anchor": "bottom",
+      "key": true,
+      "colours": 16,
+      "desc": "a slim birch tree with white bark (cut from a Gemini sheet by tools/split3.py)"
+    },
+    "tree_autumn": {
+      "file": "resources/tree_autumn.png",
+      "size": [
+        27,
+        36
+      ],
+      "anchor": "bottom",
+      "key": true,
+      "colours": 16,
+      "desc": "a twisted autumn tree with orange and red leaves (cut from a Gemini sheet by tools/split3.py)"
+    },
+    "rock_moss": {
+      "file": "resources/rock_moss.png",
+      "size": [
+        20,
+        17
+      ],
+      "anchor": "bottom",
+      "key": true,
+      "colours": 16,
+      "desc": "a mossy boulder with a tiny fern (cut from a Gemini sheet by tools/split3.py)"
+    },
+    "rock_pair": {
+      "file": "resources/rock_pair.png",
+      "size": [
+        14,
+        7
+      ],
+      "anchor": "bottom",
+      "key": true,
+      "colours": 16,
+      "desc": "a pair of small grey stones (cut from a Gemini sheet by tools/split3.py)"
+    },
+    "rock_tall": {
+      "file": "resources/rock_tall.png",
+      "size": [
+        17,
+        20
+      ],
+      "anchor": "bottom",
+      "key": true,
+      "colours": 16,
+      "desc": "a tall angular rock formation (cut from a Gemini sheet by tools/split3.py)"
+    },
+    "grass_s": {
+      "file": "resources/grass_s.png",
+      "size": [
+        8,
+        8
+      ],
+      "anchor": "bottom",
+      "key": true,
+      "colours": 16,
+      "desc": "a small grass tuft (cut from a Gemini sheet by tools/split3.py)"
+    },
+    "grass_tall": {
+      "file": "resources/grass_tall.png",
+      "size": [
+        14,
+        14
+      ],
+      "anchor": "bottom",
+      "key": true,
+      "colours": 16,
+      "desc": "a tall lush grass clump (cut from a Gemini sheet by tools/split3.py)"
+    },
+    "grass_daisy": {
+      "file": "resources/grass_daisy.png",
+      "size": [
+        10,
+        9
+      ],
+      "anchor": "bottom",
+      "key": true,
+      "colours": 16,
+      "desc": "a grass tuft with tiny white daisies (cut from a Gemini sheet by tools/split3.py)"
+    },
+    "grass_violet": {
+      "file": "resources/grass_violet.png",
+      "size": [
+        10,
+        8
+      ],
+      "anchor": "bottom",
+      "key": true,
+      "colours": 16,
+      "desc": "a grass tuft with purple flowers (cut from a Gemini sheet by tools/split3.py)"
+    },
+    "grass_mush": {
+      "file": "resources/grass_mush.png",
+      "size": [
+        10,
+        8
+      ],
+      "anchor": "bottom",
+      "key": true,
+      "colours": 16,
+      "desc": "a grass tuft with two red mushrooms (cut from a Gemini sheet by tools/split3.py)"
+    },
+    "fern": {
+      "file": "resources/fern.png",
+      "size": [
+        10,
+        10
+      ],
+      "anchor": "bottom",
+      "key": true,
+      "colours": 16,
+      "desc": "a small green fern (cut from a Gemini sheet by tools/split3.py)"
     }
   }
 }

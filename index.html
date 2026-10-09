@@ -18,7 +18,7 @@
 
   // Camera zoom per phase. Night is pulled right back on the giant tower; day is pushed right in on the tiny mage,
   // so the mage on screen is about the size the tower was at night (the scale reveal the game is built around).
-  const NIGHT_ZOOM = 1, DAY_ZOOM = 3;
+  const NIGHT_ZOOM = 1, DAY_ZOOM = 2;
   const ZOOM_EASE = 2.6;                     // how fast the camera zooms between phases (higher = faster)
 
   // Night: the tower
@@ -38,7 +38,7 @@
   const XP_SIZE = 4;
   const MAX_ZOMBIES = 400;
 
-  // Day: the blacksmith (world units; at DAY_ZOOM each world pixel is 3 screen pixels)
+  // Day: the blacksmith (world units; at DAY_ZOOM each world pixel is 2 screen pixels)
   const MAGE_SPEED = 46;
   const MAGE_ACCEL = 18;
   const MAGE_R = 3;                          // body radius for bumping into trees, rocks and the tower
