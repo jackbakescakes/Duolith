@@ -55,17 +55,6 @@
       "tile": true,
       "desc": "a seamless tileable top-down ground tile of dark blue-grey night soil with a few tiny pebbles and one or two sparse dark-green grass tufts"
     },
-    "smith": {
-      "file": "smith/smith.png",
-      "size": [
-        78,
-        26
-      ],
-      "anchor": "bottom",
-      "key": true,
-      "colours": 24,
-      "desc": "strip of 3 frames (idle, walk A, walk B), each 26x26: a stocky bald bearded blacksmith, rust-red shirt, brown leather apron, dark boots, empty hands, facing right. Built by hand from one Gemini sheet (art-src/sheet_smith.jpg) with the split script, not by downscale.py"
-    },
     "tree": {
       "file": "resources/tree.png",
       "size": [
@@ -454,6 +443,47 @@
       "key": true,
       "colours": 16,
       "desc": "a small green fern (cut from a Gemini sheet by tools/split3.py)"
+    },
+    "smith_atlas": {
+      "file": "smith/smith_atlas.png",
+      "size": [
+        448,
+        1120
+      ],
+      "anchor": "bottom",
+      "key": false,
+      "colours": 64,
+      "note": "built by tools/build_smith.py: 56x56 frames, up to 8 per row, 20 rows"
+    },
+    "ic_axe": {
+      "file": "items/axe.png",
+      "size": [
+        14,
+        14
+      ],
+      "anchor": "center",
+      "key": true,
+      "colours": 16
+    },
+    "ic_pick": {
+      "file": "items/pickaxe.png",
+      "size": [
+        14,
+        14
+      ],
+      "anchor": "center",
+      "key": true,
+      "colours": 16
+    },
+    "ic_sword": {
+      "file": "items/sword.png",
+      "size": [
+        14,
+        14
+      ],
+      "anchor": "center",
+      "key": true,
+      "colours": 16
     }
   }
 }

@@ -123,7 +123,14 @@ Keys: E workshop, 1-6 weapons on/off (owned ones), N skip ahead (sleep / dawn / 
 Nodes: trees (wood), rocks (stone), copper veins, iron veins (farther out) and crystal clusters (rarest, farthest). Breaking one pops loot that lands, then flies to the smith. Hits have a few frames of hit-stop, crits (HEAVY HAMMER), and rare finds shake the screen.
 Workshop: weapons cost mixes of wood/stone/copper/iron/crystal; tier 3 of each weapon track needs iron and crystal. Tower: HP, speed, armor (iron), regen (crystal). Smith (XP): swing, speed, magnet, lucky hands, long reach, heavy hammer.
 Sleep shows a "day complete" card with what you gathered. Day/night banners and a "tower walked N m" line mark each morning.
-Art: nodes, icons and the blacksmith came from three Gemini sprite sheets (`art-src/sheet_*.jpg`), split by connected components. The smith strip is built with the split script (3 frames of 26x26).
+Art: nodes, icons and the blacksmith came from three Gemini sprite sheets (`art-src/sheet_*.jpg`), split by connected components. The blacksmith is a 56x56 animation atlas (20 rows) built from ~19 Gemini sheets by `tools/build_smith.py` (see `tools/smith_lib.py`); hotbar icons are in `assets/items/`.
 
 ## Nature
 Four tree types (oak, pine, birch, autumn) and four rock types (boulder, mossy, pair, tall) are picked at random per node. Trees sway in the wind in pixel-crisp bands. By day a grass tile fades in over the night soil, with swaying grass tufts, daisies, violets, mushrooms and ferns that bend away from the smith. All from Gemini sheets (`art-src/sheet_trees|rocks|plants.jpg`, `tile_grass.jpg`) via `split3.py`-style splitting.
+
+## Controls (day)
+WASD walk (he faces where he walks, or the mouse once a tool is out) · **1-9** pick a hotbar slot (1 axe, 2 pickaxe, 3 sword, 4-9 empty = bare hands) · **Click / hold** to swing (trees need the axe, rock and ore the pickaxe; wrong tool gives a clang and a hint) · **Mouse wheel** zoom · **Shift + wheel** scroll the hotbar · **E** workshop (he hammers at the anvil) · **N** sleep.
+Test keys: **H** hurt, **K** die (gets back up), **Space** hop. At night 1-6 still toggle the tower's weapons.
+
+## Smith animations
+idle (down/side/up), walk (down/side/up), mine, chop, draw/stow axe, pickaxe, sword (stow plays the draw reversed), sword slash, hurt, death, jump, walk with each tool out, hammer. Rebuild with `python3 tools/build_smith.py [--preview]`.

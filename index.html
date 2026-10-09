@@ -89,7 +89,8 @@
     p_shard: 'projectiles/iceshard.png',
     p_rock:  'projectiles/boulder.png',
     p_orb:   'projectiles/arcaneorb.png',
-    smith:  'smith/smith.png',          // strip of 3 frames, 26x26 each: idle, walk A, walk B
+    smith_atlas: 'smith/smith_atlas.png',   // blacksmith animations, 56x56 frames, one animation per row (see SMITH)
+    ic_axe: 'items/axe.png', ic_pick: 'items/pickaxe.png', ic_sword: 'items/sword.png',   // hotbar icons
     tree_pine: 'resources/tree_pine.png', tree_birch: 'resources/tree_birch.png', tree_autumn: 'resources/tree_autumn.png',
     rock_moss: 'resources/rock_moss.png', rock_pair: 'resources/rock_pair.png', rock_tall: 'resources/rock_tall.png',
     grass_s: 'resources/grass_s.png', grass_tall: 'resources/grass_tall.png', grass_daisy: 'resources/grass_daisy.png',
@@ -150,11 +151,28 @@
     if ((e.code === 'KeyE' || e.code === 'Tab' || e.code === 'Escape') && !e.repeat && phase === 'day') {
       if (menu) menu = false; else if (e.code !== 'Escape') openWorkshop();
     }
-    if (/^Digit[1-6]$/.test(e.code) && !e.repeat) {     // switch owned weapons on and off
-      const w = weapons[+e.code.slice(5) - 1];
-      if (w && w.owned) { w.on = !w.on; w.timer = Math.min(w.timer, 0.3); }
+    if (/^Digit[1-9]$/.test(e.code) && !e.repeat) {
+      const n = +e.code.slice(5);
+      if (phase === 'night') {                           // at night 1-6 switch the tower's weapons on and off
+        const w = weapons[n - 1];
+        if (w && w.owned) { w.on = !w.on; w.timer = Math.min(w.timer, 0.3); }
+      } else if (phase === 'day') selectSlot(n - 1);    // by day 1-9 pick a hotbar slot
+    }
+    if (phase === 'day' && !menu && !e.repeat) {
+      if (e.code === 'Space') smithJump();
+      if (e.code === 'KeyH') smithHurt();                // TEMPORARY test keys for the hit and death animations
+      if (e.code === 'KeyK') smithDie();
     }
   });
+  // Mouse wheel zooms the camera; hold Shift to scroll through the hotbar instead.
+  canvas.addEventListener('wheel', e => {
+    e.preventDefault();
+    const d = e.deltaY || e.deltaX; if (!d || menu) return;
+    if (e.shiftKey && phase === 'day') { selectSlot((hotSel + (d > 0 ? 1 : 8)) % 9); return; }
+    const f = d < 0 ? 1.15 : 1 / 1.15;
+    if (phase === 'day') { dayZoom = Math.max(1, Math.min(4, dayZoom * f)); zoomTarget = dayZoom; }
+    else if (phase === 'night') { nightZoom = Math.max(0.6, Math.min(2, nightZoom * f)); zoomTarget = nightZoom; }
+  }, { passive: false });
   addEventListener('keyup', e => { keys[e.code] = false; });
   addEventListener('blur', () => { for (const k in keys) keys[k] = false; mouse.down = false; });
   canvas.addEventListener('mousemove', e => {
@@ -172,13 +190,15 @@
 
   // ---------- State ----------
   let phase, zoom, zoomTarget, dayLight, nightNo;
+  let dayZoom = DAY_ZOOM, nightZoom = NIGHT_ZOOM;   // the player's own zoom, set with the mouse wheel
+  let hotSel = 0, hotTip = 0;                        // selected hotbar slot, and how long its name stays on screen
   let loot, hudBump, dayGain, banner, hitstop = 0, lastDayPos, dusk, toWorkshop, walkT, dayTime, bed, dawnT, menu, menuOk = 0, menuDeny = 0, up;
   let tower, mage, zombies, shots, zaps, rings, weapons, xpDrops, particles, nodes, floaters, res;
   let orbAng, spawnTimer, time, kills, shake, gameOver;
   let camX, camY, camTx = 0, camTy = 0;      // camTx/camTy: last screen translation, for mouse and HUD maths
 
   function reset() {
-    phase = 'day'; zoom = zoomTarget = DAY_ZOOM; dayLight = 1; nightNo = 1; dayTime = DAY_LENGTH;
+    phase = 'day'; zoom = zoomTarget = dayZoom; dayLight = 1; nightNo = 1; dayTime = DAY_LENGTH;
     bed = null; dawnT = 0; menu = false; dawnFlags = {}; dusk = false; toWorkshop = false; walkT = 0;
     up = { hp: 0, spd: 0, armor: 0, regen: 0, swing: 0, mspd: 0, magnet: 0, yield: 0, reach: 0, power: 0 };
     loot = []; hudBump = {}; dayGain = { wood: 0, stone: 0, copper: 0, iron: 0, crystal: 0, xp: 0 }; lastDayPos = { x: 0, y: 0 };
@@ -187,13 +207,16 @@
               amp: 0, sink: 1, thump: 0, bodyX: 0, bodyY: 0, dirx: 1, diry: 0, legS: [0, 0, 0, 0],
               bury: [1, 1, 1, 1], legPull: [0, 0, 0, 0], pose: { x: 0, y: 0 }, scratch: 0, scratchWob: 0, scripted: false,
               eye: { open: 0, look: 0, mouth: 0, blink: 0, nextBlink: 3 } };
-    mage = { x: 0, y: 0, vx: 0, vy: 0, aim: 0, flip: false, step: 0, swing: 0, swingCd: 0, swingDir: 0, z: 0 };
+    mage = { x: 0, y: 0, vx: 0, vy: 0, aim: 0, flip: false, step: 0, swing: 0, swingCd: 0, swingDir: 0, z: 0,
+             face: 'down', tool: null, want: null, act: null, wt: 0, dead: 0, clink: 0 };
+    hotSel = 0; hotTip = 0;
     zombies = []; shots = []; zaps = []; rings = []; xpDrops = []; particles = []; nodes = []; floaters = [];
     weapons = WEAPON_DEFS.map((d, i) => ({ ...d, owned: d.id === 'ballista', on: d.id === 'ballista', rapid: 0, heavy: 0, timer: 0.6 + i * 0.25, kick: 0, face: 1 }));
     orbAng = 0;
     res = { wood: 0, stone: 0, copper: 0, iron: 0, crystal: 0, xp: 0 };
     spawnTimer = 0; time = 0; kills = 0; shake = 0; gameOver = false;
     topUpNodes();
+    mage.want = HOTBAR[hotSel] ? HOTBAR[hotSel].id : null;
     mage.x = tower.x - 14; mage.y = towerBaseY() + 16;
     camX = mage.x; camY = mage.y - 6;
   }
@@ -235,7 +258,8 @@
   }
 
   function startDay() {            // morning: the smith is up and the tower is rooted
-    phase = 'day'; zoomTarget = DAY_ZOOM; dayTime = DAY_LENGTH; dusk = false; toWorkshop = false; mage.z = 0;
+    phase = 'day'; zoomTarget = dayZoom; dayTime = DAY_LENGTH; dusk = false; toWorkshop = false; mage.z = 0;
+    mage.tool = null; mage.act = null; mage.dead = 0; mage.want = HOTBAR[hotSel] ? HOTBAR[hotSel].id : null;   // each morning he draws his tool again
     const walked = Math.round(Math.hypot(tower.x - lastDayPos.x, tower.y - lastDayPos.y) / 10); lastDayPos = { x: tower.x, y: tower.y };
     dayGain = { wood: 0, stone: 0, copper: 0, iron: 0, crystal: 0, xp: 0 };
     banner = { text: 'DAY ' + nightNo, sub: nightNo > 1 ? 'THE TOWER WALKED ' + walked + 'm' : 'GATHER, UPGRADE, THEN SLEEP', t: 0, dur: 3 };
@@ -255,9 +279,9 @@
   // Bedtime: the mage walks to the foot of the tower and lies down; see updateBed for the wake-up.
   function goToBed() {
     if (phase !== 'day') return;
-    menu = false; phase = 'bed'; mage.vx = mage.vy = 0;
+    menu = false; phase = 'bed'; mage.vx = mage.vy = 0; mage.tool = null; mage.act = null; mage.face = 'side';
     for (const l of loot) { res[l.type]++; dayGain[l.type]++; } loot = [];     // anything still lying about goes in the pack
-    bed = { t: -1, flags: {}, zzz: 0, zw: 0.3 };
+    bed = { t: -1, flags: {}, zzz: 0, zw: 0.3, z0: zoom };
     floatText(mage.x, mage.y - 20, '*yawn*', '#cfd6ff');
   }
   const BED_END = 12.4;
@@ -284,7 +308,7 @@
       } else {                                                         // hop up into the tower
         bed.jump += dt / 0.5;
         const u = Math.min(1, bed.jump);
-        mage.x = bed.jx + (bx - bed.jx) * u; mage.y = by + (towerBaseY() - 8 - by) * u; mage.z = Math.sin(u * Math.PI) * 12;
+        mage.x = bed.jx + (bx - bed.jx) * u; mage.y = by + (towerBaseY() - 8 - by) * u; mage.z = Math.sin(u * Math.PI) * 5; mage.hopU = u;
         if (u >= 1) { bed.t = 0; mage.z = 0; tower.scripted = true; burst(tower.x, towerBaseY() - 4, '#6b5a48', 6, 25); }
       }
       camX = mage.x; camY = mage.y - 6;
@@ -296,7 +320,7 @@
 
     // Camera: from the sleeping mage, up the tower, and out until the tower is about the size the mage was
     const pz = easeIO(seg(t, 0.8, 4.0));
-    zoom = Math.exp(lerp(Math.log(DAY_ZOOM), Math.log(NIGHT_ZOOM), pz)); zoomTarget = NIGHT_ZOOM;
+    zoom = Math.exp(lerp(Math.log(bed.z0), Math.log(nightZoom), pz)); zoomTarget = nightZoom;
     camX = lerp(mage.x, tower.x, pz); camY = lerp(mage.y - 6, tower.y - 8, pz);
 
     bed.zzz -= dt;                                                     // sleepy Zs
@@ -327,7 +351,7 @@
   }
 
   function startNight() {          // the tower is up: hand over control
-    phase = 'night'; zoom = zoomTarget = NIGHT_ZOOM; time = 0; spawnTimer = 0;
+    phase = 'night'; zoom = zoomTarget = nightZoom; time = 0; spawnTimer = 0;
     banner = { text: 'NIGHT ' + nightNo, sub: 'SURVIVE UNTIL DAWN', t: 0, dur: 2.6 };
     weapons.forEach((w, i) => { w.timer = 0.6 + i * 0.25; });
     tower.scripted = false; tower.hp = tower.maxHp; tower.bury.fill(0); tower.legPull = [0, 0, 0, 0];
@@ -359,7 +383,7 @@
     }
     updateGait(dt, false);
     const e = tower.eye; e.open = 1 - easeIO(seg(dawnT, 2.0, 2.8));
-    if (dawnT > 2.2) zoomTarget = DAY_ZOOM;
+    if (dawnT > 2.2) zoomTarget = dayZoom;
     if (dawnT >= 3.6) { nightNo++; startDay(); }
   }
 
@@ -829,7 +853,7 @@
     if (up.regen) tower.hp = Math.min(tower.maxHp, tower.hp + 1.5 * up.regen * dt);
 
     // Spawning: ramps up through the night, and each night starts a little busier
-    if (zoom < NIGHT_ZOOM * 1.5) {               // wait until the camera has pulled back out
+    if (zoom < nightZoom * 1.5) {               // wait until the camera has pulled back out
       const rate = 1.2 + time * 0.045 + (nightNo - 1) * 0.6;   // zombies per second
       spawnTimer += dt * rate;
       while (spawnTimer >= 1) { spawnTimer -= 1; spawnZombie(); }
@@ -877,6 +901,121 @@
         if (tower.hp <= 0) { tower.hp = 0; gameOver = true; }
       }
     }
+  }
+
+  // ---------- The smith: tools and animation ----------
+  // Atlas layout (tools/build_smith.py): one animation per row, FW x FH frames, feet at BASE inside each frame.
+  const SMITH = { fw: 56, fh: 56, base: 52, anims: { idle_down:{row:0,n:2}, idle_side:{row:1,n:2}, idle_up:{row:2,n:2}, walk_side:{row:3,n:6}, walk_down:{row:4,n:6}, walk_up:{row:5,n:6}, mine:{row:6,n:6}, chop:{row:7,n:5}, draw_axe:{row:8,n:6}, draw_pick:{row:9,n:6}, draw_sword:{row:10,n:6}, slash:{row:11,n:6}, hurt:{row:12,n:4}, death:{row:13,n:6}, jump:{row:14,n:6}, walk_axe:{row:15,n:4}, walk_pick:{row:16,n:6}, walk_sword:{row:17,n:4}, hammer:{row:18,n:6}, cheer:{row:19,n:0} } };
+  // The hotbar. Slots 1-9 (keys 1-9, Shift+wheel); empty slots mean bare hands.
+  const HOTBAR = [
+    { id: 'axe',   name: 'WOODCUTTER AXE', icon: 'ic_axe',   swing: 'chop',  need: 'tree' },
+    { id: 'pick',  name: 'IRON PICKAXE',   icon: 'ic_pick',  swing: 'mine',  need: 'ore'  },
+    { id: 'sword', name: 'BROADSWORD',     icon: 'ic_sword', swing: 'slash', need: null   },
+    null, null, null, null, null, null,
+  ];
+  // Per-animation timing: frame weights (longer on the hit frame), total seconds, and the frame the blow lands on.
+  const ACT = {
+    chop:  { w: [1, 1.1, 1.2, 1.5, 1.1], dur: 0.46, hit: 3 },
+    mine:  { w: [1, 1.1, 1.2, 0.8, 1.5, 1.1], dur: 0.54, hit: 4 },
+    slash: { w: [1, 0.9, 0.9, 0.8, 1.3, 1.1], dur: 0.42, hit: 3 },
+    draw:  { w: [1, 1, 1, 1, 1, 1.3], dur: 0.55 },
+    hurt:  { w: [1.2, 1, 1, 1], dur: 0.5 },
+    death: { w: [1, 1, 1, 1, 1.2, 4], dur: 1.6 },
+    jump:  { w: [0.8, 0.7, 0.7, 0.8, 0.7, 0.8], dur: 0.55 },
+  };
+
+  function selectSlot(i) {
+    if (i < 0 || i > 8) return;
+    hotSel = i; hotTip = 1.4;
+    mage.want = HOTBAR[i] ? HOTBAR[i].id : null;
+  }
+
+  function startAct(kind, o = {}) {
+    const T = ACT[o.timing || kind] || ACT.draw;
+    mage.act = { kind, row: o.row || kind, t: 0, dur: T.dur * (o.scale || 1), w: T.w, hit: T.hit, rev: !!o.rev, hitDone: false, then: o.then || null };
+  }
+  function smithJump() { if (!mage.act && !mage.dead) startAct('jump'); }
+  function smithHurt() { if (mage.dead) return; mage.tool = mage.tool; startAct('hurt'); shake = Math.max(shake, 2.2); hitstop = Math.max(hitstop, 0.05); burst(mage.x, mage.y - 8, '#d94a4a', 8, 50); floatText(mage.x, mage.y - 26, 'OUCH', '#ff9a7a'); mage.vx = mage.vy = 0; }
+  function smithDie() { if (mage.dead) return; startAct('death'); mage.dead = 2.6; shake = Math.max(shake, 3); }
+
+  // frame index for an action at time t (weights make some frames linger)
+  function actFrame(a, n) {
+    const w = a.w, tot = w.reduce((x, y) => x + y, 0) || n;
+    let u = Math.min(0.9999, a.t / a.dur) * tot, i = 0;
+    for (; i < w.length - 1 && u >= w[i]; i++) u -= w[i];
+    return Math.min(n - 1, a.rev ? n - 1 - i : i);
+  }
+
+  const needOf = n => n.type === 'tree' ? 'tree' : 'ore';
+  function swingImpact(def) {
+    const n = pickTarget(), f = mage.flip ? -1 : 1;
+    if (!n) { burst(mage.x + f * 13, mage.y - 3, def.id === 'sword' ? '#e8eefc' : '#b8a88a', 2, 20); return; }
+    if (def.need && needOf(n) === def.need) { hitNode(n); return; }
+    // wrong tool: a clang and a hint
+    const T = NODE_TYPES[n.type];
+    burst(n.x, n.y - T.cy, '#ffffff', 5, 44); shake = Math.max(shake, 0.6); n.shake = 0.1;
+    if (!(n.clink > 0)) { n.clink = 0.9; floatText(n.x, n.y - T.h - 2, def.id === 'sword' ? 'CLANG' : needOf(n) === 'tree' ? 'NEEDS AXE' : 'NEEDS PICKAXE', '#ff9a7a'); }
+  }
+
+  function updateSmith(dt) {
+    const a = mage.act, f = mage.flip;
+    if (hotTip > 0) hotTip -= dt;
+    if (mage.dead > 0) { mage.dead -= dt; if (mage.dead <= 0) { mage.act = null; floatText(mage.x, mage.y - 20, 'BACK UP', '#ffe9a0'); } }
+    for (const n of nodes) if (n.clink > 0) n.clink -= dt;
+    // Face the mouse whenever he holds a tool; bare-handed he faces where he walks (see smithFrame)
+    if (!a && (mage.tool || mage.want)) {
+      if (mouse.wx < mage.x - 2) mage.flip = true; else if (mouse.wx > mage.x + 2) mage.flip = false;
+    }
+    mage.aim = Math.atan2(mouse.wy - (mage.y - 6), mouse.wx - mage.x);
+    const moving = Math.hypot(mage.vx, mage.vy) > 3;
+    if (moving) mage.wt += dt * 11 * Math.min(1.5, Math.hypot(mage.vx, mage.vy) / 46);
+
+    if (a) {
+      a.t += dt * (a.kind === 'swing' ? 1 / Math.pow(0.88, up.swing) : 1);
+      const def = a.kind === 'swing' ? HOTBAR.find(h => h && h.id === mage.tool) : null;
+      if (def && !a.hitDone && actFrame(a, SMITH.anims[a.row].n) >= a.hit) { a.hitDone = true; swingImpact(def); }
+      if (a.t >= a.dur) {
+        if (a.kind !== 'death') { mage.act = null; if (a.then) a.then(); }
+        else a.t = a.dur;                              // lie there until he gets back up
+      }
+      return;
+    }
+    if (menu || toWorkshop || mage.dead > 0) return;
+
+    // Equip: stow what's in his hands, then draw what the hotbar says
+    if (mage.tool !== mage.want) {
+      if (mage.tool) { const t = mage.tool; startAct('stow', { timing: 'draw', row: 'draw_' + t, rev: true, scale: 0.8, then: () => { mage.tool = null; } }); }
+      else { const t = mage.want; startAct('draw', { row: 'draw_' + t, then: () => { mage.tool = t; } }); }
+      return;
+    }
+    // Swing: hold the mouse to keep going; the blow lands on the animation's hit frame
+    if (mouse.down && mage.tool) {
+      const def = HOTBAR.find(h => h && h.id === mage.tool);
+      startAct('swing', { row: def.swing, timing: def.swing });
+    }
+  }
+
+  // Which animation row and frame to draw right now.
+  function smithFrame() {
+    const A = SMITH.anims, speed = Math.hypot(mage.vx, mage.vy), moving = speed > 3, a = mage.act;
+    let row, fi, side = true;
+    if (phase === 'bed' && bed.t >= 0) { row = 'death'; fi = 4; }                      // asleep on the ground
+    else if (phase === 'bed' && bed.jump !== undefined) { row = 'jump'; fi = Math.min(5, Math.floor((mage.hopU || 0) * 6)); }
+    else if (a) { row = a.row; fi = actFrame(a, A[a.row].n); }
+    else if (menu && phase === 'day') { row = 'hammer'; fi = Math.floor(performance.now() / 110) % 6; mage.flip = false; }   // working at the anvil
+    else if (mage.tool) {
+      if (moving) { row = 'walk_' + mage.tool; fi = Math.floor(mage.wt) % A[row].n; }
+      else { row = 'draw_' + mage.tool; fi = A[row].n - 1; }                          // ready stance
+    } else {
+      if (moving) {
+        if (Math.abs(mage.vy) > Math.abs(mage.vx) * 1.15) mage.face = mage.vy < 0 ? 'up' : 'down';
+        else { mage.face = 'side'; mage.flip = mage.vx < 0; }
+      }
+      row = (moving ? 'walk_' : 'idle_') + mage.face;
+      fi = moving ? Math.floor(mage.wt) % A[row].n : Math.floor(performance.now() / 650) % A[row].n;
+      side = mage.face === 'side';
+    }
+    return { row, fi, flip: side && mage.flip };
   }
 
   // ---------- Day ----------
@@ -965,8 +1104,10 @@
       else { ix = dx / d; iy = dy / d; }
     }
     const k = 1 - Math.exp(-MAGE_ACCEL * dt);
-    mage.vx += (ix * mageSpeed() - mage.vx) * k;
-    mage.vy += (iy * mageSpeed() - mage.vy) * k;
+    const sp = mageSpeed() * (mage.act && (mage.act.kind === 'swing') ? 0.5 : mage.act && mage.act.kind === 'death' ? 0 : 1) * (menu ? 0 : 1);
+    if (mage.dead > 0 || (mage.act && mage.act.kind === 'hurt')) { ix = iy = 0; }
+    mage.vx += (ix * sp - mage.vx) * k;
+    mage.vy += (iy * sp - mage.vy) * k;
     mage.x += mage.vx * dt; mage.y += mage.vy * dt;
     mage.step += Math.hypot(mage.vx, mage.vy) * dt * 0.35;
     for (const n of nodes) if (!(n.dying > 0)) pushOut(n.x, n.y, n.r);
@@ -978,18 +1119,7 @@
     if (dayTime <= 0 && !dusk) beginDusk();
     if (dusk && !menu && !toWorkshop) { goToBed(); return; }      // closed the workshop: off to bed
 
-    // Always face the mouse
-    mage.aim = Math.atan2(mouse.wy - (mage.y - 6), mouse.wx - mage.x);
-    if (mouse.wx < mage.x - 2) mage.flip = true; else if (mouse.wx > mage.x + 2) mage.flip = false;
-
-    // Chop / mine: hold the mouse to keep swinging
-    if (mage.swingCd > 0) mage.swingCd -= dt;
-    if (mage.swing > 0) mage.swing -= dt;
-    if (mouse.down && !menu && !toWorkshop && mage.swingCd <= 0) {
-      mage.swingCd = swingCd(); mage.swing = 0.18; mage.swingDir = mage.aim;
-      const n = pickTarget();
-      if (n) hitNode(n);
-    }
+    updateSmith(dt);
 
     updateLoot(dt);
 
@@ -1303,44 +1433,48 @@
   }
 
   function drawMage() {
-    const moving = Math.hypot(mage.vx, mage.vy) > 3;
-    const bob = moving ? Math.abs(Math.sin(mage.step * 6.28)) * 0.75 : 0;
     const x = mage.x, y = mage.y - (mage.z || 0);
-    const f = mage.flip ? -1 : 1;
-    if (phase === 'bed' && bed.t >= 0) {                       // asleep on the ground at the foot of the tower
-      const br = Math.sin(performance.now() / 600) > 0 ? 0 : 1;
-      shadow(x - 8, y - 1, 16, 2);
-      if (sprites.smith) {
-        ctx.save(); ctx.translate(snap(x), snap(y - 5)); ctx.rotate(Math.PI / 2);
-        ctx.drawImage(sprites.smith, -Math.round(sprites.smith.width / 2), -Math.round(sprites.smith.height / 2) - br);
-        ctx.restore();
-      } else {
-        rect(x - 3, y - 6, 8, 5, '#7a4a34'); rect(x - 7, y - 7, 4, 4, '#e0b088'); rect(x - 8, y - 5 - br, 3, 2, '#6a3a22');
-      }
+    const img = sprites.smith_atlas;
+    const lying = phase === 'bed' && bed.t >= 0;
+    if (lying) shadow(x - 9, mage.y - 1, 18, 2); else shadow(x - 5, mage.y - 1, 10, 2);
+    if (img) {
+      const { row, fi, flip } = smithFrame(), A = SMITH.anims[row];
+      const fw = SMITH.fw, fh = SMITH.fh, sx = fi * fw, sy = A.row * fh, top = snap(y - SMITH.base);
+      if (mage.hurtFlash > 0) { /* reserved */ }
+      if (!flip) ctx.drawImage(img, sx, sy, fw, fh, snap(x - fw / 2), top, fw, fh);
+      else { ctx.save(); ctx.translate(snap(x), 0); ctx.scale(-1, 1); ctx.drawImage(img, sx, sy, fw, fh, -fw / 2, top, fw, fh); ctx.restore(); }
       return;
     }
-    shadow(x - 3, mage.y - 1, 6, 1);
-    if (sprites.smith) {
-      const img = sprites.smith, fw = Math.round(img.width / 3), fr = moving ? (Math.sin(mage.step * 6.28) > 0 ? 1 : 2) : 0, top = snap(y - img.height - bob * 0.5);
-      if (!mage.flip) ctx.drawImage(img, fr * fw, 0, fw, img.height, snap(x - fw / 2), top, fw, img.height);
-      else { ctx.save(); ctx.translate(snap(x), 0); ctx.scale(-1, 1); ctx.drawImage(img, fr * fw, 0, fw, img.height, Math.round(-fw / 2), top, fw, img.height); ctx.restore(); }
-    } else {
-      // placeholder blacksmith: bald head, big beard, rust shirt, leather apron, boots
-      rect(x - 3, y - 8 - bob, 6, 6, '#7a4a34');                    // shirt
-      rect(x - 2, y - 7 - bob, 4, 5, '#3a2a24');                    // apron
-      rect(x - 3, y - 4 - bob, 6, 1, '#1a1418');                    // belt
-      rect(x - 2, y - 12 - bob, 4, 4, '#e0b088');                   // head
-      rect(x - 2, y - 9 - bob, 4, 2, '#6a3a22');                    // beard
-      rect(x - 2, y - 13 - bob, 4, 1, '#c8c0b0');                   // sweatband
-      rect(x + (f > 0 ? 0 : -1), y - 11 - bob, 1, 1, '#1a1b2a');    // eye, on the side he's facing
-      rect(x - 3, y - 2, 2, 2, '#2a2430'); rect(x + 1, y - 2, 2, 2, '#2a2430');   // boots
+    // placeholder blacksmith while the atlas loads: bald head, big beard, rust shirt, leather apron, boots
+    rect(x - 3, y - 8, 6, 6, '#7a4a34'); rect(x - 2, y - 7, 4, 5, '#3a2a24'); rect(x - 3, y - 4, 6, 1, '#1a1418');
+    rect(x - 2, y - 12, 4, 4, '#e0b088'); rect(x - 2, y - 9, 4, 2, '#6a3a22');
+    rect(x - 3, y - 2, 2, 2, '#2a2430'); rect(x + 1, y - 2, 2, 2, '#2a2430');
+  }
+
+
+  // Terraria-style hotbar along the bottom of the screen
+  function drawHotbar(label) {
+    const cw = 17, x0 = Math.round(VIEW_W / 2 - cw * 4.5 + 0.5), y0 = VIEW_H - 26;
+    for (let i = 0; i < 9; i++) {
+      const x = x0 + i * cw, sel = i === hotSel, h = HOTBAR[i], lift = sel ? -2 : 0;
+      ctx.fillStyle = sel ? 'rgba(40,34,20,0.85)' : 'rgba(0,0,0,0.5)'; ctx.fillRect(x, y0 + lift, 16, 16);
+      ctx.fillStyle = sel ? '#ffe9a0' : '#4a4660';
+      ctx.fillRect(x, y0 + lift, 16, 1); ctx.fillRect(x, y0 + lift + 15, 16, 1); ctx.fillRect(x, y0 + lift, 1, 16); ctx.fillRect(x + 15, y0 + lift, 1, 16);
+      if (h) {
+        const ic = sprites[h.icon];
+        if (ic) ctx.drawImage(ic, x + 8 - (ic.width >> 1), y0 + lift + 8 - (ic.height >> 1));
+        else { ctx.fillStyle = '#aab0c0'; ctx.fillRect(x + 5, y0 + lift + 5, 6, 6); }
+        if (mage.want === h.id && mage.tool !== h.id) { ctx.fillStyle = 'rgba(255,233,160,0.25)'; ctx.fillRect(x + 1, y0 + lift + 1, 14, 14); }   // being drawn
+      }
+      label(String(i + 1), x + 2, y0 + lift + 1, sel ? '#ffffff' : '#7a7690');
     }
-    // the hammer/pick points at the mouse; on a swing it chops forward through an arc
-    const swingT = mage.swing > 0 ? mage.swing / 0.18 : 0;
-    const a = (mage.swing > 0 ? mage.swingDir : mage.aim) + (mage.swing > 0 ? (swingT - 0.5) * 1.8 * f : 0);
-    const hx = x + 3 * f, hy = sprites.smith ? y - 12 : y - 6 - bob;
-    for (let i = 0; i < 5; i++) rect(hx + Math.cos(a) * i, hy + Math.sin(a) * i, 1, 1, '#8a5a32');
-    rect(hx + Math.cos(a) * 5 - 1, hy + Math.sin(a) * 5 - 1, 3, 2, '#aab0c0');   // hammer head
+    if (hotTip > 0 && HOTBAR[hotSel]) {
+      ctx.globalAlpha = Math.min(1, hotTip * 2); ctx.textAlign = 'center';
+      label(HOTBAR[hotSel].name, VIEW_W / 2, y0 - 12, '#ffe9a0');
+      ctx.globalAlpha = 1; ctx.textAlign = 'left';
+    } else if (!HOTBAR[hotSel] && hotTip > 0) {
+      ctx.globalAlpha = Math.min(1, hotTip * 2); ctx.textAlign = 'center'; label('BARE HANDS', VIEW_W / 2, y0 - 12, '#c8b890'); ctx.globalAlpha = 1; ctx.textAlign = 'left';
+    }
   }
 
   function render() {
@@ -1394,9 +1528,10 @@
     if (phase === 'day' && !menu) {
       const t = pickTarget();
       if (t) {
+        const hd = HOTBAR.find(h => h && h.id === mage.want), bc = hd && hd.need && hd.need !== needOf(t) ? '#ff8a7a' : '#ffe9a0';
         const ti = sprites[t.spr || NODE_TYPES[t.type].spr], h = ti ? ti.height : NODE_TYPES[t.type].h, w = (ti ? ti.width : 12) + 2, bx = t.x - w / 2, by = t.y - h;
         for (const [cx, cy, dx, dy] of [[bx, by, 1, 1], [bx + w, by, -1, 1], [bx, by + h, 1, -1], [bx + w, by + h, -1, -1]]) {
-          rect(Math.min(cx, cx + 3 * dx), cy, 3, 1, '#ffe9a0'); rect(cx - (dx > 0 ? 0 : 1), Math.min(cy, cy + 3 * dy), 1, 3, '#ffe9a0');
+          rect(Math.min(cx, cx + 3 * dx), cy, 3, 1, bc); rect(cx - (dx > 0 ? 0 : 1), Math.min(cy, cy + 3 * dy), 1, 3, bc);
         }
       }
     }
@@ -1494,10 +1629,10 @@
     const row = [['wood', res.wood], ['stone', res.stone], ['copper', res.copper], ['iron', res.iron], ['crystal', res.crystal], ['xp', res.xp]];
     let rx = 8;
     for (const [k, v] of row) {
-      const bump = Math.max(0, hudBump[k] || 0), iy = VIEW_H - 27 - Math.round(Math.sin(bump / 0.3 * Math.PI) * 5);
+      const bump = Math.max(0, hudBump[k] || 0), lift = phase === 'day' && !menu ? 22 : 0, iy = VIEW_H - 27 - lift - Math.round(Math.sin(bump / 0.3 * Math.PI) * 5);
       const ic = k === 'xp' ? sprites.xp : sprites['ic_' + k];
       if (ic) ctx.drawImage(ic, rx, iy + (k === 'xp' ? 2 : 0)); else { ctx.fillStyle = RES_COLOR[k]; ctx.fillRect(rx + 2, iy + 2, 6, 6); }
-      const t = String(v); label(t, rx + 12, VIEW_H - 24, bump > 0 ? '#ffffff' : '#e8e8f0');
+      const t = String(v); label(t, rx + 12, VIEW_H - 24 - lift, bump > 0 ? '#ffffff' : '#e8e8f0');
       rx += 12 + ctx.measureText(t).width + 8;
     }
 
@@ -1527,7 +1662,8 @@
       const frac = Math.max(0, dayTime / DAY_LENGTH);
       ctx.fillStyle = '#000'; ctx.fillRect(8, 18, 62, 6); ctx.fillStyle = frac < 0.2 ? '#ff9a5a' : '#ffcf5a'; ctx.fillRect(9, 19, Math.round(60 * frac), 4);
       label('XP ON GROUND ' + xpDrops.length, 8, 28, '#3fb6ff');
-      label(dusk && toWorkshop ? 'NIGHTFALL: HEADING TO THE TOWER...' : dusk ? 'LAST CHANCE TO UPGRADE: THEN SLEEP' : 'WASD walk  MOUSE aim  CLICK chop/mine  E / click tower: workshop  N sleep', 8, VIEW_H - 12, '#c8b890');
+      label(dusk && toWorkshop ? 'NIGHTFALL: HEADING TO THE TOWER...' : dusk ? 'LAST CHANCE TO UPGRADE: THEN SLEEP' : 'WASD move  1-9 tool  CLICK use  WHEEL zoom  E workshop  N sleep', 8, 38, '#c8b890');
+      if (!menu) drawHotbar(label);
       if (!menu && nearTower()) {
         const [tx, ty] = toScreen(tower.x, tower.y - TOWER_H - 30);
         ctx.textAlign = 'center'; label('E: WORKSHOP', Math.round(tx), Math.round(Math.max(30, ty)), '#ffe9a0'); ctx.textAlign = 'left';
@@ -1573,7 +1709,7 @@
   reset();
   // test hook: lets an automated check read game state; harmless for players
   window.__duolith = { get: () => ({ up, menu, dayTime, bed, dawnT, weapons, shots: shots.length, phase, zoom, res, xp: xpDrops.length, nodes: nodes.length, nodeList: nodes, xpList: xpDrops, mage, tower, zombies: zombies.length, gameOver, camTx, camTy }),
-                       setXpDrops: a => { xpDrops = a; }, menuItems, openWorkshop, hitNode, getLoot: () => loot.length };
+                       setXpDrops: a => { xpDrops = a; }, menuItems, openWorkshop, hitNode, getLoot: () => loot.length, selectSlot, smithJump, smithHurt, smithDie, smithFrame, getSel: () => ({ hotSel, tool: mage.tool, want: mage.want, act: mage.act, dayZoom, nightZoom }) };
   let last = performance.now();
   function frame(now) {
     const dt = Math.min(0.05, (now - last) / 1000);
